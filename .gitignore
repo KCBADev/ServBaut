@@ -1,0 +1,121 @@
+# ==============================
+# Entorno virtual
+# ==============================
+venv/
+.venv/
+env/
+ENV/
+
+# ==============================
+# Cache y bytecode de Python
+# ==============================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# ==============================
+# Streamlit
+# ==============================
+.streamlit/secrets.toml
+# Bitacoras del servidor cuando se levanta en segundo plano.
+*.log
+
+# ==============================
+# Base de datos
+# ==============================
+*.db
+*.sqlite
+*.sqlite3
+# Archivos auxiliares que SQLite crea en modo WAL mientras la app corre.
+*.db-wal
+*.db-shm
+*.db-journal
+*.sql
+*.dump
+*.bak
+*.respaldo-*
+db_backup/
+
+# ==============================
+# Datos de clientes en hoja de calculo
+# ==============================
+# El Excel de origen trae los 58 clientes reales con nombre y telefono.
+# NO debe subirse a ningun repositorio.
+*.xlsx
+*.xls
+# Archivos de bloqueo que Excel deja abiertos.
+~$*
+# La excepcion: datos inventados, con la misma estructura, para que quien
+# clone el repositorio pueda probar el cargador. Lo genera generar_ejemplo.py.
+!ejemplo_taller.xlsx
+
+# ==============================
+# Material del lienzo de diseno
+# ==============================
+# Capturas, subidas y miniaturas de Claude Design: no hacen falta para
+# imprimir la orden, solo la plantilla de export/.
+Plantillas/*/uploads/
+Plantillas/*/screenshots/
+Plantillas/*/.thumbnail
+# El resto del material del lienzo: sistema de diseno, scripts del editor y
+# los borradores .dc.html. Lo unico que el codigo abre es
+# Plantillas/Work_order/export/orden-trabajo-plantilla.html (nota_pdf.py).
+Plantillas/*/assets/
+Plantillas/*/_ds/
+Plantillas/*/*.js
+Plantillas/*/*.dc.html
+Plantillas/Work_order/Orden de Trabajo - Servicio Bautista.html
+# Borradores sueltos de la raiz, reemplazados por la plantilla de export/.
+Luxury automotive work order.pdf
+orden-trabajo-plantilla (1).html
+# El esquema es codigo fuente, no datos: si se versiona.
+!esquema.sql
+
+# ==============================
+# Variables de entorno / credenciales
+# ==============================
+.env
+.env.*
+*.cfg
+config.ini
+
+# ==============================
+# Salidas generadas (no son datos fuente)
+# ==============================
+# Resultados de los scripts de analisis: se regeneran corriendolos de nuevo.
+analisis/salidas/
+exports/
+output/
+outputs/
+reports/
+figures/
+plots/
+
+# ==============================
+# Jupyter Notebooks
+# ==============================
+.ipynb_checkpoints/
+
+# ==============================
+# Entornos y herramientas
+# ==============================
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
+
+# ==============================
+# Editores e IDEs
+# ==============================
+.vscode/
+.idea/
+*.swp
+
+# ==============================
+# Sistema operativo
+# ==============================
+.DS_Store
+Thumbs.db

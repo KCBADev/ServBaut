@@ -1,0 +1,22 @@
+# Configuración de Streamlit — Auto Servicio Bautista
+
+[theme]
+# Tablero claro con la paleta que pidió el taller: lienzo blanco, tarjetas en
+# el verde-menta de la paleta y texto casi negro; el acento verde-azulado
+# queda para botones y estados activos. `styles.py` tiene el detalle completo.
+primaryColor = "#2C7A7B"              # acento principal de la paleta
+backgroundColor = "#FFFFFF"           # lienzo blanco, pedido explícito
+secondaryBackgroundColor = "#E0F2F1"  # el verde-menta: tarjetas y barra lateral
+textColor = "#1A1A1A"                 # negro casi puro, pedido explícito
+font = "sans serif"
+
+[server]
+# Solo esta computadora puede abrir la app. Sin esto Streamlit escucha en todas
+# las interfaces de red y el taller quedaría accesible desde fuera, con datos de
+# clientes detrás de un login sobre HTTP sin cifrar.
+address = "localhost"
+port = 8501
+headless = true
+
+[browser]
+gatherUsageStats = false
