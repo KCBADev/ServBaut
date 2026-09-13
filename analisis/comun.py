@@ -115,15 +115,25 @@ def guardar(nombre: str, tabla: pd.DataFrame,
         print(f"  -> {ruta_png.relative_to(RAIZ)}")
 
 
+# Los datos del vehículo (marca, año, modelo) vivieron en `notas` hasta que
+# una migración los movió a su propia tabla: el mismo coche repetido en varias
+# notas pasó a ser una ficha con historial. Por eso ambas consultas los toman
+# de `vehiculos` y no de `notas`.
+#
+# El LEFT JOIN no es adorno: `notas.id_vehiculo` admite NULL, y con un JOIN
+# normal las notas sin vehículo desaparecerían de los análisis sin avisar,
+# que es peor que verlas con la marca vacía — los totales saldrían mal.
+
 def cargar_notas() -> pd.DataFrame:
-    """Todas las notas con su cliente, como DataFrame."""
+    """Todas las notas con su cliente y su vehículo, como DataFrame."""
     with db.conectar() as conexion:
         return pd.read_sql_query(
             """
             SELECT n.id_nota, n.fecha, n.id_cliente, cl.nombre AS cliente,
-                   n.marca, n.anio, n.modelo, n.total_centavos
+                   v.marca, v.anio, v.modelo, n.total_centavos
               FROM notas n
               JOIN clientes cl ON cl.id_cliente = n.id_cliente
+              LEFT JOIN vehiculos v ON v.id_vehiculo = n.id_vehiculo
              ORDER BY n.fecha
             """,
             conexion,
@@ -132,13 +142,14 @@ def cargar_notas() -> pd.DataFrame:
 
 
 def cargar_partidas() -> pd.DataFrame:
-    """Todas las partidas con la fecha de su nota."""
+    """Todas las partidas con la fecha y la marca de su nota."""
     with db.conectar() as conexion:
         return pd.read_sql_query(
             """
-            SELECT p.*, n.fecha, n.marca, n.id_cliente
+            SELECT p.*, n.fecha, v.marca, n.id_cliente
               FROM partidas p
               JOIN notas n ON n.id_nota = p.id_nota
+              LEFT JOIN vehiculos v ON v.id_vehiculo = n.id_vehiculo
              ORDER BY n.fecha, p.id_nota, p.linea
             """,
             conexion,

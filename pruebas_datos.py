@@ -671,6 +671,44 @@ def main() -> None:
                   f"({db.formato_pesos(total_hoja)})",
                   total_hoja == db.verificar_cuadre()["total_notas_centavos"])
 
+        # Los scripts de analisis/ estuvieron rotos sin que nadie se enterara:
+        # consultaban `notas.marca`, columna que una migración se había
+        # llevado a `vehiculos`. No fallaban al importarlos, solo al correrlos,
+        # y nada los corría. Esto los ejercita.
+        print("\n--- Los cargadores de analisis/ ---")
+        sys.path.insert(0, str(Path(__file__).resolve().parent / "analisis"))
+        import comun
+
+        notas_analisis = comun.cargar_notas()
+        comprobar("cargar_notas() corre y trae todas las notas",
+                  len(notas_analisis) == len(db.listar_notas()))
+        comprobar("Trae el vehículo desde su propia tabla",
+                  {"marca", "anio", "modelo"} <= set(notas_analisis.columns))
+        comprobar("Y el importe cuadra con la base",
+                  int(notas_analisis["total_centavos"].sum())
+                  == db.verificar_cuadre()["total_notas_centavos"])
+
+        partidas_analisis = comun.cargar_partidas()
+        comprobar("cargar_partidas() corre y trae fecha y marca",
+                  {"fecha", "marca"} <= set(partidas_analisis.columns))
+
+        # Una nota sin vehículo no puede desaparecer del análisis: con un JOIN
+        # normal en vez de LEFT JOIN se caería, y los totales saldrían mal.
+        suelta = db.crear_nota(
+            id_cliente=id1, fecha="2025-11-30", id_vehiculo=None,
+            partidas=[{"id_catalogo": None, "tipo_concepto": "Servicio",
+                       "categoria": "Motor", "accion": "Reparación",
+                       "descripcion": "Diagnóstico", "posicion": None,
+                       "lado": None, "cantidad": 1,
+                       "precio_unitario_centavos": 50000}],
+        )
+        con_suelta = comun.cargar_notas()
+        comprobar("Una nota sin vehículo sigue contando en el análisis",
+                  len(con_suelta) == len(notas_analisis) + 1
+                  and con_suelta.loc[con_suelta["id_nota"] == suelta,
+                                     "marca"].isna().all())
+        db.eliminar_nota(suelta)
+
     print()
     print("=" * 74)
     if fallos:
