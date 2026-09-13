@@ -12,40 +12,40 @@
   @font-face { font-family:'Archivo'; src:url('fonts/Archivo-SemiBold.woff2') format('woff2'); font-weight:600; font-display:swap; }
   @font-face { font-family:'Archivo'; src:url('fonts/Archivo-Bold.woff2') format('woff2'); font-weight:700; font-display:swap; }
   /* ===== Orden de Trabajo — Servicio Bautista / Checa Tu Motor =====
-     Paleta: tinta #16191c · grafito #2c3136 · plata #9aa1a8
-             platino #dfe2e5 · niebla #f2f4f5 · acento petróleo #0a4f6e   */
+     Paleta: tinta #16191c · grafito #16302B · plata #9aa1a8
+             platino #dfe2e5 · niebla #f2f4f5 · acento petróleo #1E7A63   */
   @page { size: letter; margin: 0; }
   * { box-sizing: border-box; }
   body { margin:0; background:#f7f8f9; font-family:'Archivo','Roboto Condensed','Helvetica Neue',system-ui,sans-serif; color:#16191c; }
   .sheet { width:8.5in; min-height:11in; margin:0 auto; background:#fff; display:flex; flex-direction:column; }
   @media print { body { background:#fff; } .sheet { margin:0; box-shadow:none; } }
   .palette { display:flex; height:7px; flex:none; }
-  .palette span:nth-child(1){flex:2.4;background:#0a4f6e}
-  .palette span:nth-child(2){flex:1;background:#2c3136}
+  .palette span:nth-child(1){flex:2.4;background:#1E7A63}
+  .palette span:nth-child(2){flex:1;background:#16302B}
   .palette span:nth-child(3){flex:1.4;background:#16191c}
   .palette span:nth-child(4){flex:1;background:#6f7a83}
   .palette span:nth-child(5){flex:1;background:#9aa1a8}
   .palette span:nth-child(6){flex:1.2;background:#dfe2e5}
   header { padding:20px 40px 18px; display:grid; grid-template-columns:1fr auto; gap:24px; align-items:start; border-bottom:2px solid #16191c; }
   .brand { font-weight:700; font-size:23px; letter-spacing:.055em; line-height:1.1; }
-  .brand-sub { font-size:11px; letter-spacing:.34em; color:#0a4f6e; font-weight:700; margin-top:7px; }
+  .brand-sub { font-size:11px; letter-spacing:.34em; color:#1E7A63; font-weight:700; margin-top:7px; }
   .rule3 { display:flex; height:3px; width:210px; margin:13px 0; }
-  .rule3 span:nth-child(1){flex:1;background:#0a4f6e}
+  .rule3 span:nth-child(1){flex:1;background:#1E7A63}
   .rule3 span:nth-child(2){flex:1;background:#16191c}
   .rule3 span:nth-child(3){flex:1;background:#9aa1a8}
   .contact { display:flex; flex-direction:column; gap:4px; font-size:14.5px; line-height:1.45; font-weight:500; white-space:nowrap; }
   .badgecol { display:flex; flex-direction:column; align-items:center; gap:10px; justify-self:end; }
   .badgecol img { width:98px; height:auto; }
   .badge { min-width:142px; border:2px solid #16191c; background:#fff; }
-  .badge-t { background:#2c3136; color:#fff; padding:6px 12px; font-size:10.5px; font-weight:700; letter-spacing:.12em; }
+  .badge-t { background:#16302B; color:#fff; padding:6px 12px; font-size:10.5px; font-weight:700; letter-spacing:.12em; }
   .badge-b { padding:7px 12px 8px; display:flex; align-items:baseline; gap:9px; }
   .badge-b .k { font-size:11px; letter-spacing:.16em; font-weight:700; }
-  .badge-b .v { font-size:18px; font-weight:700; color:#2c3136; letter-spacing:.04em; }
-  .services { background:#2c3136; color:#eceef0; padding:10px 40px; font-size:11px; letter-spacing:.14em; font-weight:600; text-align:center; line-height:1.75; border-bottom:3px solid #6f7a83; }
+  .badge-b .v { font-size:18px; font-weight:700; color:#16302B; letter-spacing:.04em; }
+  .services { background:#16302B; color:#eceef0; padding:10px 40px; font-size:11px; letter-spacing:.14em; font-weight:600; text-align:center; line-height:1.75; border-bottom:3px solid #6f7a83; }
   .sect { padding:22px 40px 0; }
   .sect-h { display:flex; align-items:center; gap:14px; margin-bottom:12px; }
   .sect-h span.l { flex:1; height:1px; background:#d7dbde; }
-  .sect-h span.t { font-size:11px; letter-spacing:.24em; font-weight:700; color:#0a4f6e; }
+  .sect-h span.t { font-size:11px; letter-spacing:.24em; font-weight:700; color:#1E7A63; }
   .meta { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:1px; background:#d7dbde; border:1px solid #c3c8cc; }
   .cell { background:#fff; padding:11px 14px 10px; }
   .cell.wide { grid-column:span 2; }
@@ -64,7 +64,7 @@
   tfoot .bar div span:nth-child(1){flex:1.2;background:#dfe2e5}
   tfoot .bar div span:nth-child(2){flex:1;background:#9aa1a8}
   tfoot .bar div span:nth-child(3){flex:1;background:#6f7a83}
-  tfoot .bar div span:nth-child(4){flex:2.6;background:#0a4f6e}
+  tfoot .bar div span:nth-child(4){flex:2.6;background:#1E7A63}
   tfoot .total td { background:#f2f4f5; padding:14px; vertical-align:middle; }
   tfoot .total .lbl { display:flex; align-items:center; gap:14px; }
   tfoot .total .tick { width:5px; height:26px; background:#6f7a83; }
@@ -76,7 +76,7 @@
   tfoot .total td.amt .val { font-size:22px; font-weight:700; letter-spacing:.04em; }
   .terms { margin-top:auto; padding:14px 40px 0; }
   .terms-in { border-top:1px solid #c3c8cc; padding-top:10px; }
-  .terms-h { text-align:center; font-size:9.5px; letter-spacing:.28em; font-weight:700; color:#0a4f6e; margin-bottom:8px; }
+  .terms-h { text-align:center; font-size:9.5px; letter-spacing:.28em; font-weight:700; color:#1E7A63; margin-bottom:8px; }
   .terms-g { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; }
   .terms-g > div { display:flex; gap:8px; }
   .terms-g > div + div { border-left:1px solid #e2e5e8; padding-left:18px; }
@@ -87,7 +87,7 @@
   .foot-bar span:nth-child(1){flex:1.2;background:#dfe2e5}
   .foot-bar span:nth-child(2){flex:1;background:#9aa1a8}
   .foot-bar span:nth-child(3){flex:1;background:#16191c}
-  .foot-bar span:nth-child(4){flex:2.4;background:#0a4f6e}
+  .foot-bar span:nth-child(4){flex:2.4;background:#1E7A63}
 </style>
 </head>
 <body>

@@ -22,6 +22,50 @@ from paginas import descargas
 ROLES = ["admin", "operador"]
 
 
+def _mi_cuenta() -> None:
+    """
+    Cambio de la propia contraseña.
+
+    Vive aquí y no en la barra lateral: ahí quedaba entre los enlaces de
+    navegación, donde se pica por error. Y se muestra a CUALQUIER usuario,
+    aunque el resto de esta pantalla sea solo para administradores — mandar
+    sobre la propia clave no es administrar la aplicación.
+    """
+    usuario = st.session_state.get("usuario") or {}
+    if not usuario:
+        return
+
+    st.markdown(f"Sesión de **{usuario['usuario']}** · {usuario['rol']}")
+    st.caption("Cambia tu contraseña. Te pide la actual aunque ya tengas la "
+               "sesión abierta.")
+
+    with st.form("cambiar_password"):
+        actual = st.text_input("Contraseña actual", type="password")
+        nueva = st.text_input("Contraseña nueva", type="password")
+        confirmar = st.text_input("Confirmar contraseña nueva", type="password")
+        guardar = st.form_submit_button("Cambiar contraseña")
+
+    if not guardar:
+        return
+
+    if not all((actual, nueva, confirmar)):
+        st.warning("Llena los tres campos.")
+    elif nueva != confirmar:
+        st.error("La contraseña nueva y su confirmación no coinciden.")
+    elif len(nueva) < 8:
+        st.error("La contraseña nueva debe tener al menos 8 caracteres.")
+    else:
+        with db.conectar() as conexion:
+            # Se revalida la contraseña actual: tener la sesión abierta no basta
+            # para poder cambiarla.
+            if auth.autenticar(conexion, usuario["usuario"], actual) is None:
+                st.error("La contraseña actual no es correcta.")
+                return
+            auth.cambiar_password(conexion, usuario["id_usuario"], nueva)
+            conexion.commit()
+        st.success("Contraseña actualizada.")
+
+
 def _es_admin() -> bool:
     usuario = st.session_state.get("usuario") or {}
     return usuario.get("rol") == "admin"
@@ -308,15 +352,23 @@ def mostrar() -> None:
     styles.apply_global_theme()
     st.title("Configuración")
 
+    # Un operador no administra nada, pero sí manda sobre su propia clave:
+    # se le muestra su cuenta y nada más.
     if not _es_admin():
-        st.error(
-            "Esta sección es solo para administradores. Pídele a quien "
-            "administre la aplicación que haga el cambio que necesitas."
+        _mi_cuenta()
+        st.divider()
+        st.info(
+            "El resto de la configuración es solo para administradores. "
+            "Pídele a quien administre la aplicación que haga el cambio que "
+            "necesitas."
         )
         return
 
-    taller, catalogos, usuarios, exportar_tab, respaldo = st.tabs(
-        ["Datos del taller", "Catálogos", "Usuarios", "Exportar", "Respaldo"])
+    cuenta, taller, catalogos, usuarios, exportar_tab, respaldo = st.tabs(
+        ["Mi cuenta", "Datos del taller", "Catálogos", "Usuarios", "Exportar",
+         "Respaldo"])
+    with cuenta:
+        _mi_cuenta()
     with taller:
         _datos_taller()
     with catalogos:

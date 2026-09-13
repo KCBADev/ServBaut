@@ -147,7 +147,7 @@ def _pestana_nueva() -> None:
 
     st.divider()
     styles.seccion("2 · Vehículo")
-    fecha = st.date_input("Fecha *", value=date.today(), format="YYYY-MM-DD",
+    fecha = st.date_input("Fecha *", value=date.today(), format="DD/MM/YYYY",
                           key=f"{PREFIJO}_fecha")
     id_vehiculo = bloque_vehiculo(PREFIJO, id_cliente)
 
@@ -200,7 +200,7 @@ def _detalle(id_cotizacion: str) -> None:
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Folio", cotizacion["id_cotizacion"])
-    col2.metric("Fecha", cotizacion["fecha"])
+    col2.metric("Fecha", db.formato_fecha(cotizacion["fecha"]))
     col3.metric("Total", db.formato_pesos(cotizacion["total_centavos"]))
     col4.metric("Estado", cotizacion["estado"])
 
@@ -291,7 +291,7 @@ def _pestana_consultar() -> None:
         pd.DataFrame([
             {
                 "Folio": c["id_cotizacion"],
-                "Fecha": c["fecha"],
+                "Fecha": db.formato_fecha(c["fecha"]),
                 "Cliente": c["cliente"],
                 "Vehículo": f"{c['marca'] or ''} {c['modelo'] or ''}".strip()
                            or "—",

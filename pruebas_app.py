@@ -125,10 +125,16 @@ def main() -> None:
     comprobar("Renderiza sin excepciones", not app.exception, sin_excepciones(app))
     comprobar("Aparece el botón de cerrar sesión",
               any("Cerrar sesión" in b.label for b in app.button))
-    comprobar("La barra lateral identifica al usuario",
-              "admin" in texto_de(app))
-    # El fondo negro es solo de la pantalla de acceso: el dashboard está
-    # diseñado sobre superficie clara y sus colores se validaron contra ella.
+    # La barra lateral ya no dice con qué cuenta se entró: ahí va el logo del
+    # taller. El dato no se perdió, se mudó a Configuración → Mi cuenta, y
+    # ahí es donde se comprueba — saber con qué cuenta estás sigue
+    # importando, solo que ya no ocupa lugar en la navegación.
+    app_cuenta = abrir_pagina("configuracion")
+    comprobar("Configuración identifica al usuario de la sesión",
+              "admin" in texto_de(app_cuenta), texto_de(app_cuenta)[:200])
+
+    # El fondo animado es solo de la pantalla de acceso: el resto de la app
+    # tiene su propio lienzo oscuro y no debe heredar la animación.
     comprobar("El fondo animado NO se filtra al resto de la app",
               not any("#lluvia" in m.value for m in app.markdown))
 
@@ -222,11 +228,27 @@ def main() -> None:
               not any("solo para administradores" in e.value for e in app.error),
               texto_de(app)[:200])
 
-    # El rol por fin restringe algo: un operador no debe poder entrar.
+    comprobar("Y le ofrece cambiar su propia contraseña",
+              any("Contraseña actual" in (t.label or "")
+                  for t in app.text_input),
+              str([t.label for t in app.text_input]))
+
+    # El rol restringe lo que debe restringir: un operador no administra la
+    # aplicación, pero sí manda sobre su propia clave. Lo segundo importa
+    # tanto como lo primero — si no, se queda sin poder cambiarla.
     app = abrir_pagina("configuracion", rol="operador")
-    comprobar("Configuración bloquea a un operador",
-              any("solo para administradores" in e.value for e in app.error),
-              texto_de(app)[:200])
+    visible = texto_de(app)
+    comprobar("Un operador sí puede cambiar su propia contraseña",
+              any("Contraseña actual" in (t.label or "")
+                  for t in app.text_input),
+              str([t.label for t in app.text_input]))
+    comprobar("Pero se le avisa que el resto es de administradores",
+              "solo para administradores" in visible, visible[:200])
+    comprobar("Y no alcanza ninguna pestaña de administración",
+              not any(t.label in {"Datos del taller", "Catálogos", "Usuarios",
+                                  "Exportar", "Respaldo"}
+                      for t in app.tabs),
+              str([t.label for t in app.tabs]))
 
     print("\n--- Abrir una nota: detalle, edición y PDF ---")
     app = abrir_pagina("notas")

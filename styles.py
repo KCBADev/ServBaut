@@ -17,61 +17,107 @@ from __future__ import annotations
 import streamlit as st
 
 # ---------------------------------------------------------------------------
-# Paleta de interfaz — tablero claro con la paleta pedida por el taller
+# Paleta de interfaz — panel de control oscuro
 #
-# Lienzo blanco y tarjetas en el verde-menta más claro de la paleta, para que
-# el fondo y las tarjetas se distingan sin salir de los cinco colores dados.
-# El texto va en negro casi puro (pedido explícito: "el texto preferentemente
-# negro"), y los tres verdes-azulados quedan reservados para lo interactivo —
-# botones, pestaña activa, enlace de navegación activo, foco — que es donde el
-# taller pidió que la paleta "resalte". Los bordes en reposo van en un tono
-# suave derivado (blanco mezclado con el acento), no en el acento a toda
-# fuerza: así el color se nota más precisamente cuando algo se selecciona o
-# recibe foco, en vez de repetirse igual de fuerte en cada recuadro.
+# Dos azules-carbón distintos hacen de lienzo y de tarjeta: así una tarjeta se
+# recorta del fondo sin necesitar borde, que es lo que da el aire de tablero.
+# El verde menta queda reservado para lo que de verdad importa —cifras,
+# botones, estado activo, foco— y no se reparte por todos lados: si todo
+# brilla, nada resalta.
+#
+# Dos reglas de contraste que decidieron varias cosas de más abajo, medidas
+# sobre esta misma paleta:
+#   * Dentro de un botón o barra de menta, la tinta va OSCURA (10.05:1);
+#     clara daría 1.32:1 y sería ilegible. Es al revés que en el tema claro.
+#   * El coral solo sirve de RELLENO. Como texto sobre tarjeta da 2.85:1 y no
+#     pasa ni para cuerpo grande.
 # ---------------------------------------------------------------------------
-FONDO = "#FFFFFF"           # lienzo, tal cual lo pidió el taller
-PANEL = "#E0F2F1"           # el verde-menta de la paleta: tarjetas, barra
-                            # lateral (base), campos
-PANEL_HOVER = "#B4DBDA"     # panel + acento claro: hover y encabezados
-BORDE = "#C0D7D7"           # blanco + acento al 30%: contorno en reposo
-BORDE_TENUE = "#E6EFEF"     # blanco + acento al 12%: separadores discretos
-TEXTO = "#1A1A1A"           # negro casi puro, pedido explícito
-TEXTO_TENUE = "#275F5E"     # negro + acento claro: etiquetas, texto secundario
-TEXTO_APAGADO = "#2B7473"   # el paso más apagado, siempre ≥ AA sobre blanco
-ACENTO = "#2C7A7B"          # verde-azulado principal: botones, activo, foco
-ACENTO_CLARO = "#319795"    # el más vivo de los tres: resaltes suaves
-ACENTO_PROFUNDO = "#1E524C" # el más oscuro: hover de botón y degradado
+FONDO = "#091017"            # azul marino / carbón: lienzo general
+PANEL = "#171B24"            # gris azulado: tarjetas y campos
+PANEL_HOVER = "#1F2530"      # un paso más claro: hover y encabezados de tabla
+BORDE = "#2F3742"            # contorno de tarjeta, discreto
+BORDE_TENUE = "#1D242B"      # separadores que casi no se ven
+TEXTO = "#D2D8DE"            # gris claro: cifras y títulos
+TEXTO_TENUE = "#898F96"      # gris azulado medio: etiquetas y ejes
+TEXTO_APAGADO = "#6E757C"    # el paso más apagado
+ACENTO = "#18D59C"           # verde menta: botones, activo, foco
+ACENTO_PROFUNDO = "#124839"  # verde esmeralda oscuro: rellenos y degradados
+ALERTA = "#A2444C"           # rojo coral: saldos, avisos, variación negativa
+
+# Tinta que va ENCIMA del acento (botones, barras). Oscura a propósito: ver
+# la nota de contraste de arriba.
+TINTA_SOBRE_ACENTO = FONDO
 
 # ---------------------------------------------------------------------------
 # Paleta de datos
 #
-# `#2C7A7B` (el mismo acento de la interfaz) lleva las gráficas de una sola
-# serie: barras de magnitud, área de tendencia, etc.
+# El menta lleva las series de un solo color. El coral es el segundo tono del
+# mix: separado del menta por 3.18:1 y del lienzo por 3.16:1, que es el piso
+# para marcas de gráfica. Los dos vienen de la paleta del taller; no hace
+# falta inventar un color de fuera como en el tema anterior.
 #
-# El naranja sigue siendo el ÚNICO color fuera de la paleta del taller, y por
-# la misma razón que antes: la paleta pedida es monocromática (tres verdes-
-# azulados) y no puede separar dos categorías por tono sin salirse de la banda
-# de luminosidad. Se revalida aquí sobre el lienzo BLANCO, no sobre el navy
-# oscuro de antes: texto oscuro sobre cualquiera de las dos barras del mix
-# pasa ≥3:1 (3.46:1 sobre el acento, 5.49:1 sobre el naranja), que es lo que
-# usa la etiqueta directa del gráfico de mezcla.
+# Las etiquetas que van DENTRO de una barra no pueden ser de un solo color:
+# sobre el menta necesitan tinta oscura (10.05:1) y sobre el coral, clara
+# (4.22:1). `dashboard.py` las calcula por serie.
 # ---------------------------------------------------------------------------
-SERIE_1 = ACENTO           # el acento del taller: serie única y magnitudes
-SERIE_2 = "#D9772F"        # naranja: segundo elemento del mix
-REJILLA = "#DAECEC"        # líneas de rejilla, discretas, sobre blanco
-EJE = TEXTO_TENUE          # ejes y líneas base: mismo peso que el texto tenue
+SERIE_1 = ACENTO             # serie única y magnitudes
+SERIE_2 = ALERTA             # segundo elemento del mix
+SERIE_3 = ACENTO_PROFUNDO    # relleno de área, fondo de barra
+REJILLA = "#1D242B"          # líneas de rejilla, apenas visibles
+EJE = TEXTO_TENUE            # ejes y etiquetas: mismo peso que el texto tenue
+
+# Rampa del menta al esmeralda para repartir un todo en varias partes (el
+# pastel de categorías). Es una sola familia de color, ordenada de mayor a
+# menor: dos rebanadas contiguas solo se separan 1.4:1, así que el color NO
+# puede ser el único canal — cada rebanada va rotulada con su nombre y su
+# porcentaje, y debajo va la tabla. El gris queda para el cajón de «Otras»,
+# que no es una categoría más sino el resto.
+RAMPA = ["#18D59C", "#17BA89", "#169F76", "#158463", "#146950"]
+RAMPA_RESTO = TEXTO_APAGADO
+
+# Tipografía de los títulos. Se carga de Google Fonts; si la máquina está sin
+# red, cae a la de sistema y la app se ve bien igual, solo menos personal.
+FUENTE_TITULOS = "'Sora', 'Segoe UI', system-ui, sans-serif"
 
 
 def _hoja_de_estilo() -> str:
     """El CSS completo de la aplicación."""
     return f"""
     <style>
+    @import url('https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&display=swap');
+
+    /* ------------------------------------------------------------------
+       Títulos
+       El título de cada pantalla es lo primero que se ve, y de fábrica es
+       solo texto un poco más grande. Con una tipografía de display, más
+       peso y el interletrado cerrado, la pantalla arranca con algo que se
+       lee como encabezado y no como párrafo.
+       ------------------------------------------------------------------ */
+    .stApp h1 {{
+        font-family: {FUENTE_TITULOS} !important;
+        font-weight: 800 !important;
+        font-size: 2.6rem !important;
+        letter-spacing: -.03em !important;
+        line-height: 1.1 !important;
+        color: {TEXTO} !important;
+        margin-bottom: .35rem !important;
+    }}
+    .stApp h2, .stApp h3 {{
+        font-family: {FUENTE_TITULOS} !important;
+        font-weight: 700 !important;
+        letter-spacing: -.015em !important;
+        color: {TEXTO} !important;
+    }}
+    .stApp [data-testid="stHeadingWithActionElements"] h3 {{
+        font-size: 1.05rem;
+    }}
+
     /* ------------------------------------------------------------------
        Campos de entrada
        Streamlit envuelve cada control en un contenedor propio; se pinta el
        ENVOLTORIO y no el <input>, porque algunos campos (contraseña, número,
        fecha) meten botones dentro del mismo contenedor y si solo se pintara
-       el input esos botones quedarían como recuadros claros pegados.
+       el input esos botones quedarían como recuadros de otro color.
        ------------------------------------------------------------------ */
     [data-testid="stTextInputRootElement"],
     [data-testid="stNumberInputContainer"],
@@ -93,7 +139,7 @@ def _hoja_de_estilo() -> str:
     [data-baseweb="textarea"]:focus-within,
     .stTextArea textarea:focus {{
         border-color: {ACENTO} !important;
-        box-shadow: 0 0 0 2px rgba(44, 122, 123, .35) !important;
+        box-shadow: 0 0 0 2px rgba(24, 213, 156, .30) !important;
     }}
 
     /* El campo en sí queda transparente: el color lo pone el envoltorio. */
@@ -113,7 +159,7 @@ def _hoja_de_estilo() -> str:
         border: 1px solid {BORDE} !important;
     }}
     [data-baseweb="menu"] li:hover {{
-        background-color: rgba(49, 151, 149, .16) !important;
+        background-color: rgba(24, 213, 156, .16) !important;
     }}
 
     /* ------------------------------------------------------------------
@@ -142,10 +188,10 @@ def _hoja_de_estilo() -> str:
 
     /* ------------------------------------------------------------------
        Botones
-       Sobre fondo claro el hover debe OSCURECER, no aclarar — al revés que
-       en un tema oscuro — porque es la convención que se espera y porque da
-       mejor contraste: blanco sobre el acento profundo pasa 8.87:1, contra
-       apenas 3.51:1 si aclarara hacia el verde más vivo de la paleta.
+       Sobre fondo oscuro el hover ACLARA, no oscurece: es la convención en
+       un tema oscuro y es lo único que se nota sobre este lienzo. La tinta
+       del botón va oscura porque el menta es un color claro — ver la nota
+       de contraste de la paleta.
        ------------------------------------------------------------------ */
     .stButton button,
     [data-testid="stFormSubmitButton"] button,
@@ -153,21 +199,21 @@ def _hoja_de_estilo() -> str:
         background-color: {ACENTO} !important;
         border: none !important;
         border-radius: 8px !important;
-        transition: box-shadow .15s ease, background-color .15s ease;
+        transition: box-shadow .15s ease, filter .15s ease;
     }}
     .stButton button, .stButton button p,
     [data-testid="stFormSubmitButton"] button,
     [data-testid="stFormSubmitButton"] button p,
     [data-testid="stDownloadButton"] button,
     [data-testid="stDownloadButton"] button p {{
-        color: #FFFFFF !important;
-        font-weight: 600 !important;
+        color: {TINTA_SOBRE_ACENTO} !important;
+        font-weight: 700 !important;
     }}
     .stButton button:hover,
     [data-testid="stFormSubmitButton"] button:hover,
     [data-testid="stDownloadButton"] button:hover {{
-        background-color: {ACENTO_PROFUNDO} !important;
-        box-shadow: 0 0 16px rgba(30, 82, 76, .45) !important;
+        filter: brightness(1.12) !important;
+        box-shadow: 0 0 18px rgba(24, 213, 156, .35) !important;
     }}
 
     /* El ojito de la contraseña y los pasos del campo numérico no son
@@ -180,136 +226,65 @@ def _hoja_de_estilo() -> str:
     }}
     [data-testid="stTextInputRootElement"] button:hover,
     [data-testid="stNumberInputContainer"] button:hover {{
-        background-color: rgba(49, 151, 149, .14) !important;
+        background-color: rgba(24, 213, 156, .14) !important;
         box-shadow: none !important;
+        filter: none !important;
     }}
 
     /* ------------------------------------------------------------------
        Barra lateral
-       Degradado con los tres tonos de la paleta (de claro a oscuro, de
-       arriba abajo) para que combine con el resto sin salirse de los
-       colores pedidos. El texto de la barra lateral es blanco porque va
-       sobre un fondo oscuro-medio, aunque el resto de la app use negro
-       sobre blanco — es la única zona donde se invierte, a propósito.
+       Un punto más oscura que el lienzo, no más clara: así el contenido
+       queda al frente y la navegación se va al fondo, que es el orden en
+       que se miran.
        ------------------------------------------------------------------ */
     [data-testid="stSidebar"] {{
-        background: linear-gradient(165deg, {ACENTO} 0%, {ACENTO_PROFUNDO} 100%) !important;
-        border-right: none;
+        background: linear-gradient(180deg, {PANEL} 0%, {FONDO} 100%) !important;
+        border-right: 1px solid {BORDE};
     }}
     [data-testid="stSidebar"] hr {{
-        border-color: rgba(255, 255, 255, .18);
-    }}
-    [data-testid="stSidebar"] p,
-    [data-testid="stSidebar"] span,
-    [data-testid="stSidebar"] label,
-    [data-testid="stSidebar"] h1,
-    [data-testid="stSidebar"] h2,
-    [data-testid="stSidebar"] h3 {{
-        color: #FFFFFF !important;
-    }}
-    [data-testid="stSidebar"] [data-testid="stCaptionContainer"] {{
-        color: rgba(255, 255, 255, .72) !important;
+        border-color: {BORDE};
     }}
 
-    /* Navegación: el enlace activo se marca con un filete blanco a la
-       izquierda — sobre el degradado, un filete del propio acento no se
-       vería con el contraste suficiente en todos los puntos del gradiente. */
+    /* Navegación: filete de acento a la izquierda del enlace activo, en vez
+       de un bloque de color que competiría con los botones. */
     [data-testid="stSidebarNav"] a {{
         border-radius: 6px;
         border-left: 2px solid transparent;
     }}
     [data-testid="stSidebarNav"] a:hover {{
-        background-color: rgba(255, 255, 255, .12);
+        background-color: rgba(24, 213, 156, .10);
     }}
     [data-testid="stSidebarNav"] a[aria-current="page"] {{
-        background-color: rgba(255, 255, 255, .20);
-        border-left-color: #FFFFFF;
-    }}
-
-    /* El botón «Cerrar sesión» se invierte (blanco sobre el degradado) para
-       que siga distinguiéndose de su propio fondo, que ya es del acento. */
-    [data-testid="stSidebar"] .stButton button {{
-        background-color: #FFFFFF !important;
-    }}
-    [data-testid="stSidebar"] .stButton button,
-    [data-testid="stSidebar"] .stButton button p {{
-        color: {ACENTO_PROFUNDO} !important;
-    }}
-    [data-testid="stSidebar"] .stButton button:hover {{
-        background-color: {PANEL} !important;
-        box-shadow: 0 0 14px rgba(255, 255, 255, .55) !important;
-    }}
-
-    /* «Cambiar mi contraseña» discreto: sin recuadro, chico y apagado
-       mientras está cerrado, para que no compita con la navegación ni con
-       «Cerrar sesión». Una vez abierto, el formulario de adentro se ve
-       normal — lo discreto es solo el renglón de cerrado. */
-    [data-testid="stSidebar"] [data-testid="stExpander"] {{
-        background-color: transparent !important;
-        border: none !important;
-        box-shadow: none !important;
-    }}
-    [data-testid="stSidebar"] [data-testid="stExpander"] summary {{
-        padding: 2px 0 !important;
-        min-height: unset !important;
-    }}
-    /* Ojo con el selector: va acotado a "summary" y no a todo el expansor,
-       porque el formulario de adentro (una vez abierto) usa el mismo patrón
-       stMarkdownContainer > p para sus propias etiquetas, y esas sí necesitan
-       tinta oscura — es una tarjeta clara, no la barra lateral oscura. */
-    [data-testid="stSidebar"] [data-testid="stExpander"] summary [data-testid="stMarkdownContainer"] p {{
-        color: rgba(255, 255, 255, .55) !important;
-        font-size: .78rem !important;
-        font-weight: 400 !important;
-    }}
-    [data-testid="stSidebar"] [data-testid="stExpander"] summary [data-testid="stIconMaterial"] {{
-        color: rgba(255, 255, 255, .55) !important;
-        font-size: 1rem !important;
-    }}
-    [data-testid="stSidebar"] [data-testid="stExpander"] summary:hover [data-testid="stMarkdownContainer"] p,
-    [data-testid="stSidebar"] [data-testid="stExpander"] summary:hover [data-testid="stIconMaterial"] {{
-        color: rgba(255, 255, 255, .9) !important;
-    }}
-    /* El formulario de adentro es una tarjeta clara igual que cualquier otra:
-       sus etiquetas necesitan tinta oscura, no la blanca del resto de la
-       barra lateral. Queda además de lo anterior, por si acaso. */
-    [data-testid="stSidebar"] [data-testid="stExpanderDetails"] label,
-    [data-testid="stSidebar"] [data-testid="stExpanderDetails"] p {{
-        color: {TEXTO} !important;
+        background-color: rgba(24, 213, 156, .16);
+        border-left-color: {ACENTO};
     }}
 
     /* ------------------------------------------------------------------
-       Tablas y dataframes
-       ------------------------------------------------------------------ */
-    [data-testid="stDataFrame"],
-    [data-testid="stTable"] {{
-        background-color: {PANEL};
-        border: 1px solid {BORDE};
-        border-radius: 8px;
-    }}
-    [data-testid="stDataFrame"] * {{
-        color: {TEXTO};
-    }}
-
-    /* ------------------------------------------------------------------
-       Métricas, expansores y contenedores
+       Tarjetas, métricas y contenedores
        ------------------------------------------------------------------ */
     [data-testid="stMetric"] {{
         background-color: {PANEL};
         border: 1px solid {BORDE};
         border-radius: 10px;
-        padding: 14px 16px;
+        padding: 14px 16px 12px;
+        /* Filete superior de acento, como las tarjetas de un tablero. */
+        border-top: 2px solid {ACENTO};
     }}
-    [data-testid="stMetricLabel"] {{
+    [data-testid="stMetricLabel"] p {{
+        font-size: .74rem !important;
+        letter-spacing: .07em;
+        text-transform: uppercase;
         color: {TEXTO_TENUE} !important;
     }}
     [data-testid="stMetricValue"] {{
-        color: {TEXTO} !important;
+        font-family: {FUENTE_TITULOS} !important;
         /* Cuerpo algo menor que el de fábrica: los importes en pesos son
            cifras largas y al tamaño original se truncaban en las tarjetas
            estrechas, que es peor que verlas un punto más chicas. */
-        font-size: 1.75rem !important;
-        line-height: 1.25 !important;
+        font-size: 1.7rem !important;
+        line-height: 1.2 !important;
+        color: {TEXTO} !important;
+        font-weight: 700 !important;
     }}
 
     [data-testid="stExpander"] {{
@@ -322,10 +297,6 @@ def _hoja_de_estilo() -> str:
         background-color: {PANEL};
         border: 1px solid {BORDE} !important;
         border-radius: 10px;
-    }}
-
-    hr, [data-testid="stDivider"] {{
-        border-color: {BORDE} !important;
     }}
 
     /* Tarjeta reutilizable para agrupar contenido en cualquier vista. */
@@ -352,46 +323,17 @@ def _hoja_de_estilo() -> str:
     }}
 
     /* ------------------------------------------------------------------
-       Densidad de tablero
-       El tablero de referencia apila mucha información en poco espacio:
-       tarjetas con contorno marcado, cifras grandes, etiquetas chicas en
-       mayúsculas y tablas compactas con encabezado marcado.
+       Tablas compactas, con encabezado marcado y filas apretadas
        ------------------------------------------------------------------ */
-    [data-testid="stMetric"] {{
+    [data-testid="stDataFrame"],
+    [data-testid="stTable"] {{
         background-color: {PANEL};
         border: 1px solid {BORDE};
         border-radius: 10px;
-        padding: 14px 16px 12px;
-        /* Filete superior de acento, como las tarjetas de la referencia. */
-        border-top: 2px solid {ACENTO};
-        box-shadow: 0 1px 3px rgba(30, 82, 76, .12);
-    }}
-    [data-testid="stMetricLabel"] p {{
-        font-size: .74rem !important;
-        letter-spacing: .07em;
-        text-transform: uppercase;
-        color: {TEXTO_TENUE} !important;
-    }}
-    [data-testid="stMetricValue"] {{
-        font-size: 1.7rem !important;
-        line-height: 1.2 !important;
-        color: {TEXTO} !important;
-        font-weight: 600 !important;
-    }}
-
-    /* Encabezados de sección, al estilo «Márketing» / «Ventas». */
-    .stApp h2, .stApp h3 {{
-        letter-spacing: -.01em;
-    }}
-    .stApp [data-testid="stHeadingWithActionElements"] h3 {{
-        font-size: 1.05rem;
-    }}
-
-    /* Tablas compactas con encabezado marcado y filas apretadas. */
-    [data-testid="stDataFrame"] {{
-        border: 1px solid {BORDE};
-        border-radius: 10px;
         overflow: hidden;
+    }}
+    [data-testid="stDataFrame"] * {{
+        color: {TEXTO};
     }}
     [data-testid="stDataFrame"] thead tr th {{
         background-color: {PANEL_HOVER} !important;
@@ -418,8 +360,9 @@ def _hoja_de_estilo() -> str:
         margin: 4px 0 12px;
     }}
     .seccion-titulo {{
+        font-family: {FUENTE_TITULOS};
         font-size: 1.05rem;
-        font-weight: 600;
+        font-weight: 700;
         color: {TEXTO};
     }}
     .seccion-nota {{

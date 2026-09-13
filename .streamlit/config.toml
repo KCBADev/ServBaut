@@ -1,13 +1,14 @@
 # Configuración de Streamlit — Auto Servicio Bautista
 
 [theme]
-# Tablero claro con la paleta que pidió el taller: lienzo blanco, tarjetas en
-# el verde-menta de la paleta y texto casi negro; el acento verde-azulado
-# queda para botones y estados activos. `styles.py` tiene el detalle completo.
-primaryColor = "#2C7A7B"              # acento principal de la paleta
-backgroundColor = "#FFFFFF"           # lienzo blanco, pedido explícito
-secondaryBackgroundColor = "#E0F2F1"  # el verde-menta: tarjetas y barra lateral
-textColor = "#1A1A1A"                 # negro casi puro, pedido explícito
+# Tablero oscuro tipo panel de control. El lienzo y las tarjetas son dos
+# azules-carbón distintos para que una tarjeta se distinga del fondo sin
+# necesitar borde, y el verde menta queda para lo que importa: cifras,
+# botones y estados activos. `styles.py` tiene el detalle completo.
+primaryColor = "#18D59C"              # verde menta: acento principal
+backgroundColor = "#091017"           # azul marino / carbón: lienzo
+secondaryBackgroundColor = "#171B24"  # gris azulado: tarjetas y campos
+textColor = "#D2D8DE"                 # gris claro de alto contraste
 font = "sans serif"
 
 [server]
@@ -17,6 +18,18 @@ font = "sans serif"
 address = "localhost"
 port = 8501
 headless = true
+
+# Aplica los cambios de código sin preguntar. Sin esto, en cuanto un archivo
+# .py cambia, Streamlit muestra arriba «File change / Rerun / Always rerun»
+# y se queda esperando. Eso es una comodidad para quien programa, no para
+# quien captura notas en el taller.
+runOnSave = true
+
+[client]
+# Esconde la barra de desarrollo: el botón «Deploy», el menú de hamburguesa y
+# el aviso de archivo modificado. El taller no despliega nada ni edita código;
+# esos controles solo estorban y se pueden picar por error.
+toolbarMode = "minimal"
 
 [browser]
 gatherUsageStats = false

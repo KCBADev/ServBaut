@@ -85,7 +85,7 @@ def _ficha(id_vehiculo: int) -> None:
         pd.DataFrame([
             {
                 "Folio": h["id_nota"],
-                "Fecha": h["fecha"],
+                "Fecha": db.formato_fecha(h["fecha"]),
                 "Lo trajo": h["cliente"],
                 "Estado": h["estado"],
                 "Partidas": h["num_partidas"],

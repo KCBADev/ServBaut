@@ -26,7 +26,7 @@ import streamlit as st
 import db
 import styles
 
-# Paleta de datos revalidada contra el lienzo BLANCO de la interfaz: los tonos
+# Paleta de datos revalidada contra el lienzo OSCURO de la interfaz: los tonos
 # viven en styles.py para que las gráficas y la interfaz no se separen nunca.
 # Detalle de contraste en styles.py, junto a SERIE_1/SERIE_2.
 SERIE_1 = styles.SERIE_1
@@ -36,6 +36,12 @@ REJILLA = styles.REJILLA
 EJE = styles.EJE
 TINTA_TENUE = styles.TEXTO_TENUE
 TINTA_SECUNDARIA = styles.TEXTO_APAGADO
+
+# Tinta de las etiquetas que van DENTRO de una marca de color. No puede ser
+# una sola: sobre el menta hace falta tinta oscura (10.05:1) y sobre el coral,
+# clara (4.22:1). Cada gráfica que rotula por dentro elige según su serie.
+TINTA_SOBRE_SERIE_1 = styles.FONDO
+TINTA_SOBRE_SERIE_2 = styles.TEXTO
 
 
 def _pesos(centavos: int | None) -> float:
@@ -73,14 +79,20 @@ def _barras_horizontales(datos: pd.DataFrame, campo_categoria: str,
         .encode(
             x=alt.X(f"{campo_valor}:Q", title=titulo_valor,
                     axis=alt.Axis(format=formato)),
+            # `labelOverlap=False`: por omisión Altair va tirando etiquetas
+            # cuando cree que se enciman, y dejaba la gráfica con barras sin
+            # nombre — sin saber de quién es cada barra, la gráfica no sirve.
             y=alt.Y(f"{campo_categoria}:N", title=None,
-                    sort=alt.SortField(campo_valor, order="descending")),
+                    sort=alt.SortField(campo_valor, order="descending"),
+                    axis=alt.Axis(labelOverlap=False, labelLimit=170)),
             tooltip=[
                 alt.Tooltip(f"{campo_categoria}:N", title="Concepto"),
                 alt.Tooltip(f"{campo_valor}:Q", title=titulo_valor, format=formato),
             ],
         )
-        .properties(height=max(160, 26 * len(datos)))
+        # 30 px por barra en vez de 26: con menos, las etiquetas del eje se
+        # encimaban y Altair volvía a esconderlas aunque se lo prohíba.
+        .properties(height=max(160, 30 * len(datos)))
     )
 
 
@@ -104,10 +116,11 @@ def _filtro_fechas() -> tuple[str | None, str | None]:
     col1, col2 = st.columns([3, 1])
     rango = col1.date_input(
         "Rango de fechas", value=(inicio, fin),
-        min_value=inicio, max_value=fin, format="YYYY-MM-DD",
+        min_value=inicio, max_value=fin, format="DD/MM/YYYY",
     )
     col2.caption(
-        f"Historial disponible:  \n**{minimo}** a **{maximo}**"
+        f"Historial disponible:  \n"
+        f"**{db.formato_fecha(minimo)}** a **{db.formato_fecha(maximo)}**"
     )
 
     # Mientras se elige la segunda fecha, Streamlit devuelve una sola.
@@ -252,6 +265,11 @@ def datos_mix_tipo(desde: str | None, hasta: str | None) -> pd.DataFrame:
             # Etiqueta con el signo incluido: un "43" suelto dentro de la barra
             # no dice de qué es.
             "Etiqueta": f"{f['ingreso_centavos'] / total * 100:.0f}%" if total else "0%",
+            # La tinta se decide por serie, no por gráfica: el menta es un
+            # color claro y pide texto oscuro; el coral es oscuro y pide
+            # texto claro. Una sola tinta dejaría una de las dos ilegible.
+            "Tinta": (TINTA_SOBRE_SERIE_1 if f["tipo_concepto"] == "Producto"
+                      else TINTA_SOBRE_SERIE_2),
         }
         for f in filas
     ])
@@ -285,15 +303,17 @@ def grafica_mix_tipo(datos: pd.DataFrame) -> alt.Chart:
         )
     )
     # Etiqueta directa dentro de cada segmento: solo el porcentaje, que cabe.
-    # Etiqueta en tinta oscura, no blanca: los dos colores del mix rondan una
-    # luminosidad media, donde el texto oscuro contrasta mucho mejor.
+    # El color de la tinta viene calculado por fila (ver `datos_mix_tipo`) y
+    # se pasa con `scale=None` para que Altair lo use tal cual en vez de
+    # tratarlo como una categoría más que colorear.
     etiquetas = (
         alt.Chart(datos)
-        .mark_text(color=styles.TEXTO, fontWeight="bold", fontSize=13)
+        .mark_text(fontWeight="bold", fontSize=13)
         .encode(
             x=alt.X("Ingreso:Q", stack="zero", bandPosition=0.5, title=None),
             detail="Tipo:N",
             text=alt.Text("Etiqueta:N"),
+            color=alt.Color("Tinta:N", scale=None, legend=None),
         )
     )
     return _afinar((barra + etiquetas).properties(height=110))
@@ -309,7 +329,9 @@ def _mix_tipo(desde: str | None, hasta: str | None) -> None:
 
     st.altair_chart(grafica_mix_tipo(datos), width="stretch")
 
-    tabla = datos.copy()
+    # Fuera las dos columnas que solo sirven para dibujar la etiqueta dentro
+    # de la barra: una repite el porcentaje y la otra es un color en hex.
+    tabla = datos.drop(columns=["Etiqueta", "Tinta"])
     tabla["Ingreso"] = tabla["Ingreso"].map(lambda v: f"${v:,.2f}")
     tabla["Porcentaje"] = tabla["Porcentaje"].map(lambda v: f"{v:.1f}%")
     _tabla("el mix", tabla)
@@ -369,6 +391,211 @@ def _top_clientes(desde: str | None, hasta: str | None) -> None:
     _tabla("el top de clientes", tabla)
 
 
+def _ticket_por_marca(desde: str | None, hasta: str | None) -> None:
+    st.subheader("Ticket promedio por marca")
+
+    filas = db.ticket_por_marca(desde, hasta)
+    if not filas:
+        st.info("Ninguna marca tiene todavía suficientes notas para "
+                "promediar.")
+        return
+
+    datos = pd.DataFrame([
+        {
+            "Marca": f["marca"],
+            "Ticket": _pesos(f["ticket_centavos"]),
+            "Notas": f["num_notas"],
+        }
+        for f in filas
+    ])
+
+    st.altair_chart(
+        _barras_horizontales(datos, "Marca", "Ticket", "Ticket promedio"),
+        width="stretch",
+    )
+    st.caption("Solo marcas con dos notas o más: un promedio sobre una sola "
+               "nota no dice nada.")
+
+    tabla = datos.copy()
+    tabla["Ticket"] = tabla["Ticket"].map(lambda v: f"${v:,.2f}")
+    _tabla("el ticket por marca", tabla)
+
+
+def datos_dispersion(desde: str | None, hasta: str | None) -> pd.DataFrame:
+    """Una fila por nota, con las variables cuantitativas que se cruzan."""
+    filas = db.listar_notas(desde=desde, hasta=hasta)
+    return pd.DataFrame([
+        {
+            "Folio": f["id_nota"],
+            "Cliente": f["cliente"],
+            "Vehiculo": f"{f['marca'] or ''} {f['modelo'] or ''}".strip() or "—",
+            "Anio": f["anio"],
+            "Renglones": f["num_partidas"],
+            "Total": _pesos(f["total_centavos"]),
+        }
+        for f in filas
+    ])
+
+
+def _grafica_dispersion(datos: pd.DataFrame, campo_x: str, titulo_x: str,
+                        formato_x: str = ",.0f") -> alt.Chart:
+    """
+    Nube de puntos con su recta de tendencia.
+
+    La recta es la mitad del valor de un diagrama de dispersión: sin ella hay
+    que adivinar a ojo si la nube sube, baja o no dice nada.
+    """
+    base = alt.Chart(datos)
+    puntos = base.mark_circle(size=90, color=SERIE_1, opacity=0.65).encode(
+        x=alt.X(f"{campo_x}:Q", title=titulo_x,
+                scale=alt.Scale(zero=False, nice=True),
+                axis=alt.Axis(format=formato_x)),
+        y=alt.Y("Total:Q", title="Total de la nota",
+                axis=alt.Axis(format="$,.0f")),
+        tooltip=[
+            alt.Tooltip("Folio:N", title="Nota"),
+            alt.Tooltip("Cliente:N", title="Cliente"),
+            alt.Tooltip("Vehiculo:N", title="Vehículo"),
+            alt.Tooltip(f"{campo_x}:Q", title=titulo_x, format=formato_x),
+            alt.Tooltip("Total:Q", title="Total", format="$,.2f"),
+        ],
+    )
+    tendencia = (
+        base.mark_line(color=styles.TEXTO_TENUE, strokeDash=[6, 4],
+                       strokeWidth=2)
+        .transform_regression(campo_x, "Total")
+        .encode(x=f"{campo_x}:Q", y="Total:Q")
+    )
+    return _afinar((puntos + tendencia).properties(height=320))
+
+
+def _dispersion_anio(desde: str | None, hasta: str | None) -> None:
+    st.subheader("Antigüedad del vehículo y ticket")
+
+    datos = datos_dispersion(desde, hasta)
+    datos = datos[datos["Anio"].notna()]
+    if datos.empty:
+        st.info("Ninguna nota del rango tiene el año del vehículo capturado.")
+        return
+
+    st.altair_chart(
+        _grafica_dispersion(datos, "Anio", "Año del vehículo", "d"),
+        width="stretch",
+    )
+    st.caption("Cada punto es una nota. La línea punteada es la tendencia: si "
+               "va plana, el año del coche no predice cuánto se cobra.")
+
+    tabla = datos[["Folio", "Vehiculo", "Anio", "Total"]].copy()
+    tabla["Anio"] = tabla["Anio"].astype("Int64")
+    tabla["Total"] = tabla["Total"].map(lambda v: f"${v:,.2f}")
+    tabla = tabla.rename(columns={"Anio": "Año", "Vehiculo": "Vehículo"})
+    _tabla("las notas por año de vehículo", tabla)
+
+
+def _dispersion_renglones(desde: str | None, hasta: str | None) -> None:
+    st.subheader("Renglones por nota y ticket")
+
+    datos = datos_dispersion(desde, hasta)
+    if datos.empty:
+        st.info("Sin notas en el rango.")
+        return
+
+    st.altair_chart(
+        _grafica_dispersion(datos, "Renglones", "Renglones en la nota"),
+        width="stretch",
+    )
+    st.caption("Responde de dónde sale una nota grande: de muchos conceptos "
+               "o de conceptos caros. Si la nube sube parejo, es volumen.")
+
+    tabla = datos[["Folio", "Cliente", "Renglones", "Total"]].copy()
+    tabla["Total"] = tabla["Total"].map(lambda v: f"${v:,.2f}")
+    _tabla("las notas por número de renglones", tabla)
+
+
+def datos_pastel_categorias(desde: str | None, hasta: str | None,
+                            limite: int = 5) -> pd.DataFrame:
+    """
+    Ingreso por categoría, recortado a las mayores y un cajón de «Otras».
+
+    Un pastel con once rebanadas no se lee: las últimas quedan como hilos sin
+    etiqueta. Se quedan las `limite` mayores y el resto se junta, que además
+    es la lectura honesta — lo que importa aquí es la concentración.
+    """
+    filas = db.ingresos_por_categoria(desde, hasta)
+    if not filas:
+        return pd.DataFrame(columns=["Categoría", "Ingreso", "Porcentaje"])
+
+    ordenadas = sorted(filas, key=lambda f: f["ingreso_centavos"], reverse=True)
+    principales = ordenadas[:limite]
+    resto = ordenadas[limite:]
+
+    partes = [{"Categoría": f["categoria"],
+               "Ingreso": _pesos(f["ingreso_centavos"])}
+              for f in principales]
+    if resto:
+        partes.append({
+            "Categoría": "Otras",
+            "Ingreso": _pesos(sum(f["ingreso_centavos"] for f in resto)),
+        })
+
+    datos = pd.DataFrame(partes)
+    total = datos["Ingreso"].sum()
+    datos["Porcentaje"] = datos["Ingreso"] / total * 100 if total else 0
+    datos["EtiquetaPct"] = datos["Porcentaje"].map(lambda v: f"{v:.0f}%")
+    return datos
+
+
+def grafica_pastel_categorias(datos: pd.DataFrame) -> alt.Chart:
+    """Pastel de composición, rotulado: el color no es el único canal."""
+    colores = styles.RAMPA[:len(datos)]
+    if "Otras" in set(datos["Categoría"]):
+        colores = styles.RAMPA[:len(datos) - 1] + [styles.RAMPA_RESTO]
+
+    base = alt.Chart(datos).encode(
+        theta=alt.Theta("Ingreso:Q", stack=True),
+        color=alt.Color(
+            "Categoría:N",
+            scale=alt.Scale(domain=list(datos["Categoría"]), range=colores),
+            legend=alt.Legend(title=None, orient="right"),
+        ),
+        tooltip=[
+            alt.Tooltip("Categoría:N", title="Categoría"),
+            alt.Tooltip("Ingreso:Q", title="Ingreso", format="$,.2f"),
+            alt.Tooltip("Porcentaje:Q", title="Del total", format=".1f"),
+        ],
+    )
+    # Dona y no pastel lleno: el hueco del centro da dónde apoyar la vista y
+    # hace más fácil comparar los arcos por su longitud.
+    arco = base.mark_arc(innerRadius=62, outerRadius=118,
+                         stroke=SUPERFICIE, strokeWidth=2)
+    etiquetas = base.mark_text(radius=140, fontSize=11,
+                               fill=styles.TEXTO).encode(
+        # Con el signo: un «36» suelto junto a un arco no dice de qué es.
+        text=alt.Text("EtiquetaPct:N")
+    )
+    return _afinar((arco + etiquetas).properties(height=320))
+
+
+def _pastel_categorias(desde: str | None, hasta: str | None) -> None:
+    st.subheader("Reparto del ingreso por categoría")
+
+    datos = datos_pastel_categorias(desde, hasta)
+    if datos.empty:
+        st.info("Sin datos en el rango.")
+        return
+
+    st.altair_chart(grafica_pastel_categorias(datos), width="stretch")
+    mayor = datos.iloc[0]
+    st.caption(f"{mayor['Categoría']} sola es el {mayor['Porcentaje']:.0f}% "
+               f"de lo facturado. Las cifras son porcentajes.")
+
+    # Fuera la columna que solo existe para rotular el arco.
+    tabla = datos.drop(columns=["EtiquetaPct"])
+    tabla["Ingreso"] = tabla["Ingreso"].map(lambda v: f"${v:,.2f}")
+    tabla["Porcentaje"] = tabla["Porcentaje"].map(lambda v: f"{v:.1f}%")
+    _tabla("el reparto por categoría", tabla)
+
+
 # ---------------------------------------------------------------------------
 
 def mostrar() -> None:
@@ -394,6 +621,23 @@ def mostrar() -> None:
         _mix_tipo(desde, hasta)
         st.write("")
         _marcas(desde, hasta)
+
+    st.divider()
+    izquierda, derecha = st.columns(2)
+    with izquierda:
+        _pastel_categorias(desde, hasta)
+    with derecha:
+        _ticket_por_marca(desde, hasta)
+
+    # Los dos cruces cuantitativos van al final y juntos: son los que piden
+    # más tiempo de lectura, y de entrada estorbarían a quien solo entra a ver
+    # cómo va el mes.
+    st.divider()
+    izquierda, derecha = st.columns(2)
+    with izquierda:
+        _dispersion_anio(desde, hasta)
+    with derecha:
+        _dispersion_renglones(desde, hasta)
 
     st.divider()
     _top_clientes(desde, hasta)

@@ -61,6 +61,24 @@ def centavos_a_pesos(centavos: int | None) -> Decimal | None:
     return (Decimal(centavos) / 100).quantize(Decimal("0.01"))
 
 
+def formato_fecha(iso: str | None) -> str:
+    """
+    De `2026-01-21` a `21/01/2026`, que es como se lee la fecha en México.
+
+    La base guarda ISO y así se queda: ordena bien como texto y es lo que
+    esperan `date.fromisoformat` y los `CHECK` del esquema. La conversión es
+    solo para mostrar, igual que con los centavos.
+    """
+    if not iso:
+        return "—"
+    try:
+        return date.fromisoformat(iso[:10]).strftime("%d/%m/%Y")
+    except ValueError:
+        # Si llega algo que no es una fecha ISO, se muestra tal cual en vez
+        # de tronar: un dato raro no debe tumbar la pantalla entera.
+        return iso
+
+
 def formato_pesos(centavos: int | None) -> str:
     """Formatea centavos para mostrar en pantalla: 38114650 -> '$381,146.50'."""
     if centavos is None:
@@ -272,6 +290,45 @@ def agregar_marca(nombre: str) -> None:
         c.execute("INSERT INTO marcas (nombre) VALUES (?) ON CONFLICT DO NOTHING",
                   (nombre.strip(),))
         c.commit()
+
+
+# Marcas de vehículo que se venden o circulan en México, para que la lista no
+# dependa de que el taller ya haya atendido esa marca antes.
+#
+# Dos grafías van tal como el taller las escribió desde el principio —
+# «Mercedes» (no «Mercedes-Benz») y «KIA» (no «Kia»)— porque `marcas.nombre`
+# es la llave primaria a la que apuntan los vehículos: agregar la variante
+# dejaría dos entradas para la misma marca y partiría el historial en dos.
+MARCAS_CONOCIDAS = [
+    "Acura", "Alfa Romeo", "Audi", "BAIC", "Bentley", "BMW", "Buick", "BYD",
+    "Cadillac", "Changan", "Chevrolet", "Chirey", "Chrysler", "Citroën",
+    "Cupra", "Dodge", "FAW", "Fiat", "Ford", "Freightliner", "GAC", "Geely",
+    "GMC", "Great Wall", "Hino", "Honda", "Hyundai", "Infiniti",
+    "International", "Isuzu", "JAC", "Jaguar", "Jeep", "Jetour", "KIA",
+    "Land Rover", "Lexus", "Lincoln", "Mahindra", "Maserati", "Mazda",
+    "Mercedes", "MG", "MINI", "Mitsubishi", "Nissan", "Omoda", "Opel",
+    "Peugeot", "Polestar", "Porsche", "RAM", "Renault", "SEAT", "Smart",
+    "SsangYong", "Subaru", "Suzuki", "Tesla", "Toyota", "Volkswagen",
+    "Volvo", "Zacua",
+]
+
+
+def sembrar_marcas() -> int:
+    """
+    Agrega las marcas conocidas que falten. Devuelve cuántas se agregaron.
+
+    Es idempotente: las que ya están se quedan como están, con su grafía
+    original, porque son la llave a la que apuntan los vehículos ya
+    registrados.
+    """
+    with transaccion() as c:
+        antes = c.execute("SELECT COUNT(*) FROM marcas").fetchone()[0]
+        c.executemany(
+            "INSERT INTO marcas (nombre) VALUES (?) ON CONFLICT DO NOTHING",
+            [(m,) for m in MARCAS_CONOCIDAS],
+        )
+        despues = c.execute("SELECT COUNT(*) FROM marcas").fetchone()[0]
+    return despues - antes
 
 
 # ---------------------------------------------------------------------------

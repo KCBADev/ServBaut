@@ -526,6 +526,13 @@ def main() -> None:
         credenciales = asegurar_admin(conexion)
         exito = validar(conexion)
 
+    # Aparte de la transacción anterior: las marcas del catálogo general no
+    # salen del Excel, se suman a las que el taller ya haya atendido para que
+    # al capturar una nota la lista no dependa de si ese coche ya vino antes.
+    nuevas = db.sembrar_marcas()
+    log(f"\n--- Marcas ---\n  {nuevas} marcas del catálogo general agregadas "
+        f"({len(db.listar_marcas())} en total)")
+
     log()
     log("=" * 74)
     if credenciales:

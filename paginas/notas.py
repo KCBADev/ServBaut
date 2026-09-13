@@ -256,7 +256,7 @@ def _tabla_partidas(partidas: list[dict]) -> pd.DataFrame:
 def _detalle(nota: dict) -> None:
     col1, col2, col3, col4, col5 = st.columns([1, 1.2, 1.4, 1.4, 1.2])
     col1.metric("Folio", nota["id_nota"])
-    col2.metric("Fecha", nota["fecha"])
+    col2.metric("Fecha", db.formato_fecha(nota["fecha"]))
     col3.metric("Total", db.formato_pesos(nota["total_centavos"]))
     col4.metric("Saldo", db.formato_pesos(nota["saldo_centavos"]),
                 help="Total menos lo que ya pagó el cliente.")
@@ -338,7 +338,7 @@ def _editar_cabecera(nota: dict) -> None:
         etiqueta = col1.selectbox("Cliente", etiquetas, index=actual)
         fecha = col2.date_input(
             "Fecha", value=datetime.strptime(nota["fecha"], "%Y-%m-%d").date(),
-            format="YYYY-MM-DD",
+            format="DD/MM/YYYY",
         )
         etiqueta_veh = st.selectbox(
             "Vehículo", etiquetas_veh, index=actual_veh,
@@ -547,8 +547,8 @@ def _pestana_consultar() -> None:
         "Estado", [None, "Pendientes de entregar", *db.ESTADOS],
         format_func=lambda v: "Todos" if v is None else v,
     )
-    desde = col3.date_input("Desde", value=None, format="YYYY-MM-DD")
-    hasta = col4.date_input("Hasta", value=None, format="YYYY-MM-DD")
+    desde = col3.date_input("Desde", value=None, format="DD/MM/YYYY")
+    hasta = col4.date_input("Hasta", value=None, format="DD/MM/YYYY")
 
     notas = db.listar_notas(
         busqueda,
@@ -576,7 +576,7 @@ def _pestana_consultar() -> None:
     tabla = pd.DataFrame([
         {
             "Folio": n["id_nota"],
-            "Fecha": n["fecha"],
+            "Fecha": db.formato_fecha(n["fecha"]),
             "Estado": n["estado"],
             "Cliente": n["cliente"],
             "Vehículo": f"{n['marca'] or ''} {n['modelo'] or ''}".strip() or "—",

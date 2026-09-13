@@ -56,7 +56,7 @@ def _bloque_nota_vehiculo(id_cliente: int | None) -> tuple:
     col1, col2, col3 = st.columns([1.1, 1.4, 1.4])
     col1.text_input("ID_N", value=folio, disabled=True,
                     help="Folio consecutivo de la nota. Se asigna al guardar.")
-    fecha = col2.date_input("Fecha *", value=date.today(), format="YYYY-MM-DD")
+    fecha = col2.date_input("Fecha *", value=date.today(), format="DD/MM/YYYY")
     estado = col3.selectbox("Estado", db.ESTADOS, index=0)
 
     id_vehiculo = bloque_vehiculo(PREFIJO, id_cliente)

@@ -12,6 +12,7 @@ Uso:
 from __future__ import annotations
 
 import random
+from pathlib import Path
 
 import streamlit as st
 
@@ -20,6 +21,10 @@ import db
 import styles
 from paginas import (catalogo, clientes, configuracion, cotizaciones,
                      crear_nota, dashboard, notas, reportes, vehiculos)
+
+# El monograma del taller, ya revisado al gris claro del tema y recortado al
+# ícono. Se genera desde el logo original con `assets/README.md`.
+RUTA_LOGO = Path(__file__).resolve().parent / "assets" / "ctm-logo.png"
 
 st.set_page_config(
     page_title="Servicio Bautista",
@@ -262,44 +267,21 @@ def cerrar_sesion() -> None:
         del st.session_state[clave]
 
 
-def formulario_cambio_password(usuario: dict) -> None:
-    """Permite al usuario cambiar su propia contraseña."""
-    with st.form("cambiar_password"):
-        actual = st.text_input("Contraseña actual", type="password")
-        nueva = st.text_input("Contraseña nueva", type="password")
-        confirmar = st.text_input("Confirmar contraseña nueva", type="password")
-        guardar = st.form_submit_button("Cambiar contraseña")
-
-    if not guardar:
-        return
-
-    if not all((actual, nueva, confirmar)):
-        st.warning("Llena los tres campos.")
-    elif nueva != confirmar:
-        st.error("La contraseña nueva y su confirmación no coinciden.")
-    elif len(nueva) < 8:
-        st.error("La contraseña nueva debe tener al menos 8 caracteres.")
-    else:
-        with db.conectar() as conexion:
-            # Se revalida la contraseña actual: tener la sesión abierta no basta
-            # para poder cambiarla.
-            if auth.autenticar(conexion, usuario["usuario"], actual) is None:
-                st.error("La contraseña actual no es correcta.")
-                return
-            auth.cambiar_password(conexion, usuario["id_usuario"], nueva)
-            conexion.commit()
-        st.success("Contraseña actualizada.")
-
-
 def barra_lateral(usuario: dict) -> None:
-    """Datos del usuario, cambio de contraseña y cierre de sesión."""
+    """Identidad del usuario y cierre de sesión.
+
+    El cambio de contraseña NO vive aquí: está en Configuración → Mi cuenta.
+    La barra lateral es para navegar, y un formulario de credenciales metido
+    entre los enlaces se pica por error y distrae de lo que se viene a hacer.
+    """
     with st.sidebar:
         st.markdown("### Auto Servicio Bautista")
-        st.caption(f"Sesión de **{usuario['usuario']}** · {usuario['rol']}")
+        # El monograma del taller en lugar del renglón de «Sesión de…». Quién
+        # tiene la sesión abierta se sigue viendo, pero en Configuración →
+        # Mi cuenta, que es donde se hace algo con ese dato.
+        if RUTA_LOGO.exists():
+            st.image(str(RUTA_LOGO), width=110)
         st.divider()
-
-        with st.expander("Cambiar mi contraseña"):
-            formulario_cambio_password(usuario)
 
         if st.button("Cerrar sesión", width="stretch"):
             cerrar_sesion()
