@@ -43,6 +43,16 @@ TIPO_POR_OMISION = "Producto"
 # Las notas del histórico ya se hicieron y se entregaron.
 ESTADO_HISTORICO = "Entregado"
 
+# El Excel del taller trae dos marcas escritas como se teclearon en su día.
+# Se estandarizan al nombre oficial al cargar, porque `marcas.nombre` es la
+# llave a la que apuntan los vehículos: si una recarga volviera a meter
+# «Mercedes» junto al «Mercedes-Benz» que ya está en la base, la misma marca
+# quedaría partida en dos y el historial del coche con ella.
+EQUIVALENCIAS_MARCA = {
+    "Mercedes": "Mercedes-Benz",
+    "KIA": "Kia",
+}
+
 
 def log(mensaje: str = "") -> None:
     print(mensaje)
@@ -56,6 +66,12 @@ def limpiar_texto(valor) -> str | None:
         return None
     texto = str(valor).strip()
     return texto or None
+
+
+def normalizar_marca(valor) -> str | None:
+    """Limpia la marca y la deja con su nombre oficial."""
+    marca = limpiar_texto(valor)
+    return EQUIVALENCIAS_MARCA.get(marca, marca)
 
 
 def limpiar_telefono(valor) -> str | None:
@@ -133,7 +149,7 @@ def normalizar(clientes: pd.DataFrame, notas: pd.DataFrame,
             limpiar_texto(fila["ID_N (PK)"]),
             int(fila["ID_Cliente (FK)"]),
             pd.to_datetime(fila["Fecha"]).strftime("%Y-%m-%d"),
-            limpiar_texto(fila["Marca"]),
+            normalizar_marca(fila["Marca"]),
             int(fila["Año"]) if pd.notna(fila["Año"]) else None,
             limpiar_texto(modelo),
             limpiar_texto(fila["Color"]),

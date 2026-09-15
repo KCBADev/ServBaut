@@ -95,7 +95,7 @@ NOTAS = [
     ("N-008", 8, date(2025, 4, 9), "Jeep", 2013, "Patriot", "Cobre", [
         ("Servicio", "Escape", "Soldadura", "Soldadura de escape", None, "Centro", 1, 700.0),
     ]),
-    ("N-009", 9, date(2025, 4, 23), "KIA", 2020, "Rio", "Gris", [
+    ("N-009", 9, date(2025, 4, 23), "Kia", 2020, "Rio", "Gris", [
         ("Producto", "Llantas y rines", None, "Llanta 185/65 R15", None, None, 2, 1650.0),
         ("Servicio", "Llantas y rines", "Instalación", "Montaje y balanceo", None, "Par", 2, 150.0),
     ]),

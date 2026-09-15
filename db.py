@@ -295,18 +295,21 @@ def agregar_marca(nombre: str) -> None:
 # Marcas de vehículo que se venden o circulan en México, para que la lista no
 # dependa de que el taller ya haya atendido esa marca antes.
 #
-# Dos grafías van tal como el taller las escribió desde el principio —
-# «Mercedes» (no «Mercedes-Benz») y «KIA» (no «Kia»)— porque `marcas.nombre`
-# es la llave primaria a la que apuntan los vehículos: agregar la variante
-# dejaría dos entradas para la misma marca y partiría el historial en dos.
+# Todas van con su nombre oficial, incluidas «Mercedes-Benz» y «Kia», que el
+# taller tenía escritas como «Mercedes» y «KIA» desde la hoja de Excel. Como
+# `marcas.nombre` es la llave primaria a la que apuntan los vehículos, no
+# bastó con cambiar esta lista: hubo que renombrar también la llave en la
+# base y repuntar los vehículos, o habrían quedado dos entradas para la misma
+# marca y el historial partido en dos. `EQUIVALENCIAS_MARCA` en
+# `cargar_datos.py` mantiene la corrección si algún día se recarga el Excel.
 MARCAS_CONOCIDAS = [
     "Acura", "Alfa Romeo", "Audi", "BAIC", "Bentley", "BMW", "Buick", "BYD",
     "Cadillac", "Changan", "Chevrolet", "Chirey", "Chrysler", "Citroën",
     "Cupra", "Dodge", "FAW", "Fiat", "Ford", "Freightliner", "GAC", "Geely",
     "GMC", "Great Wall", "Hino", "Honda", "Hyundai", "Infiniti",
-    "International", "Isuzu", "JAC", "Jaguar", "Jeep", "Jetour", "KIA",
+    "International", "Isuzu", "JAC", "Jaguar", "Jeep", "Jetour", "Kia",
     "Land Rover", "Lexus", "Lincoln", "Mahindra", "Maserati", "Mazda",
-    "Mercedes", "MG", "MINI", "Mitsubishi", "Nissan", "Omoda", "Opel",
+    "Mercedes-Benz", "MG", "MINI", "Mitsubishi", "Nissan", "Omoda", "Opel",
     "Peugeot", "Polestar", "Porsche", "RAM", "Renault", "SEAT", "Smart",
     "SsangYong", "Subaru", "Suzuki", "Tesla", "Toyota", "Volkswagen",
     "Volvo", "Zacua",
