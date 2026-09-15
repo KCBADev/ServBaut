@@ -14,6 +14,8 @@ cambia su marcado interno, el tema base sigue funcionando.
 
 from __future__ import annotations
 
+import html
+
 import streamlit as st
 
 # ---------------------------------------------------------------------------
@@ -374,8 +376,16 @@ def _hoja_de_estilo() -> str:
 
 
 def seccion(titulo: str, nota: str = "") -> None:
-    """Encabezado de bloque, al estilo de las secciones del tablero."""
-    extra = f'<span class="seccion-nota">{nota}</span>' if nota else ""
+    """
+    Encabezado de bloque, al estilo de las secciones del tablero.
+
+    `titulo` y `nota` son siempre una etiqueta plana (hoy, literales escritos
+    a mano en cada pantalla) — se escapan por si algún día alguien pasa aquí
+    un dato de la base sin pensarlo dos veces.
+    """
+    titulo = html.escape(titulo)
+    extra = (f'<span class="seccion-nota">{html.escape(nota)}</span>'
+            if nota else "")
     st.markdown(
         f'<div class="seccion"><span class="seccion-titulo">{titulo}</span>'
         f'{extra}</div>',
@@ -397,7 +407,16 @@ def apply_global_theme() -> None:
 
 
 def tarjeta(contenido: str, titulo: str | None = None) -> None:
-    """Dibuja un bloque con el borde y el fondo de panel de la aplicación."""
-    encabezado = f'<div class="tarjeta-titulo">{titulo}</div>' if titulo else ""
+    """
+    Dibuja un bloque con el borde y el fondo de panel de la aplicación.
+
+    `titulo` es una etiqueta plana y se escapa. `contenido` se inserta TAL
+    CUAL, sin escapar — a propósito, porque el punto de esta función es
+    aceptar marcado (un `<b>`, un `<div>` anidado). Quien la llame es
+    responsable de escapar cualquier dato que no controle (un nombre de
+    cliente, una descripción) antes de pasarlo aquí.
+    """
+    encabezado = (f'<div class="tarjeta-titulo">{html.escape(titulo)}</div>'
+                 if titulo else "")
     st.markdown(f'<div class="tarjeta">{encabezado}{contenido}</div>',
                 unsafe_allow_html=True)

@@ -1,0 +1,38 @@
+name: Pruebas
+
+# Solo las dos suites que corren sobre una base TEMPORAL, nunca sobre datos
+# reales: `pruebas_esquema.py` y `pruebas_datos.py` fijan `db.RUTA_DB` a un
+# archivo dentro de un directorio temporal antes de tocar la base, así que
+# son seguras de correr en un runner desechable.
+#
+# `pruebas_app.py` se queda fuera a propósito: depende de la base real del
+# taller (`D:\TallerBautista\taller.db`), que por diseño no existe ni debe
+# existir fuera de esa computadora.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  pruebas:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Instalar Chromium (lo usa nota_pdf.py para la orden de trabajo)
+        run: playwright install --with-deps chromium
+
+      - name: Esquema (37 pruebas)
+        run: python pruebas_esquema.py
+
+      - name: Capa de datos (136 pruebas)
+        run: python pruebas_datos.py

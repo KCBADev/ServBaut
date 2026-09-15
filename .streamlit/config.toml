@@ -31,5 +31,12 @@ runOnSave = true
 # esos controles solo estorban y se pueden picar por error.
 toolbarMode = "minimal"
 
+# Si un error no capturado llega a pantalla, se muestra solo el TIPO de
+# excepción, no el traceback completo (rutas de archivo, nombres internos).
+# Hoy el servidor solo escucha en localhost, pero el README ya documenta cómo
+# abrirlo a la red del taller — y ese es el escenario donde un traceback
+# completo sí quedaría visible a cualquiera en esa red.
+showErrorDetails = "type"
+
 [browser]
 gatherUsageStats = false

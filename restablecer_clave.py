@@ -12,6 +12,11 @@ Uso:
     .venv\\Scripts\\python.exe restablecer_clave.py                    (lista usuarios)
     .venv\\Scripts\\python.exe restablecer_clave.py admin              (clave nueva al azar)
     .venv\\Scripts\\python.exe restablecer_clave.py admin --clave MiClave123
+
+Se recomienda usar la forma sin `--clave` y dejar que genere una al azar:
+una contraseña pasada como argumento queda en el historial de la terminal
+(`Get-History`, `.bash_history`) en texto plano. `--clave` existe para
+cuando de verdad hace falta fijar una en concreto.
 """
 
 from __future__ import annotations
@@ -49,7 +54,9 @@ def main() -> None:
     parser.add_argument("usuario", nargs="?",
                         help="Usuario a restablecer. Sin esto solo lista.")
     parser.add_argument("--clave",
-                        help="Contraseña a fijar. Si se omite, se genera una.")
+                        help="Contraseña a fijar. Si se omite (recomendado), "
+                             "se genera una al azar: pasarla aquí la deja en "
+                             "el historial de la terminal.")
     parser.add_argument("--activar", action="store_true",
                         help="Reactiva el usuario si estaba desactivado.")
     args = parser.parse_args()

@@ -1,20 +1,25 @@
 # Dependencias directas — Servicio Bautista
 # Probado con Python 3.12.10 en Windows.
 #
+# Versiones fijas, no mínimos: instalar de nuevo dentro de un año debe traer
+# exactamente lo mismo que se probó aquí, no lo último que exista ese día.
+# Para subir una versión, se hace a propósito y se corren las tres suites de
+# pruebas antes de fijar el número nuevo.
+#
 # Instalación:
 #   py -3.12 -m venv .venv
 #   .venv\Scripts\python.exe -m pip install -r requirements.txt
 
-streamlit>=1.63.0    # interfaz de la aplicación
-pandas>=3.0.0        # lectura del Excel de origen y consultas del dashboard
-openpyxl>=3.1.5      # motor que pandas usa para leer .xlsx
-altair>=6.2.0        # gráficas del dashboard
-vl-convert-python>=1.6.0  # exporta a PNG las gráficas de los análisis
+streamlit==1.63.0    # interfaz de la aplicación
+pandas==3.0.5        # lectura del Excel de origen y consultas del dashboard
+openpyxl==3.1.5      # motor que pandas usa para leer .xlsx
+altair==6.2.2        # gráficas del dashboard
+vl-convert-python==1.9.0.post1  # exporta a PNG las gráficas de los análisis
 # La orden de trabajo se imprime renderizando la plantilla HTML del taller con
 # Chromium: el diseño usa flexbox, grid y @page, que ninguna librería de PDF en
 # Python interpreta. Tras instalar, hace falta bajar el navegador una vez:
 #     .venv\Scripts\python.exe -m playwright install chromium
-playwright>=1.40.0
+playwright==1.62.0
 
 # La base de datos es SQLite, incluida en la librería estándar de Python
 # (módulo sqlite3): no requiere instalación.
