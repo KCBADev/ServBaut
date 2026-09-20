@@ -22,6 +22,7 @@ from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
 
+import config
 import db
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -114,12 +115,14 @@ def _prueba_diagnosticos_interaccion() -> None:
     """
     print("\n--- Diagnósticos: flujo completo (base temporal aislada) ---")
     original_ruta = db.RUTA_DB
-    # En D:, no en el temporal del sistema (C:): el mismo motivo por el que
-    # `db.RUTA_DB` ya vive en D: — este disco C: anda muy justo de espacio y
-    # una base SQLite ahí puede fallar con "database or disk is full" a
-    # medio crear, aunque D: tenga cientos de GB libres.
+    # El temporal del sistema, salvo que TALLER_TMP diga otra cosa. Antes esto
+    # forzaba la carpeta de la base (D:) porque C: andaba muy justo de espacio,
+    # pero atar la suite al disco de datos es justo lo que le impedía correr en
+    # el CI o en un contenedor, donde no existe ningún D:. La base de prueba
+    # pesa unos cientos de KB y `pruebas_datos.py` lleva tiempo creando la suya
+    # en el temporal del sistema sin ningún problema.
     carpeta = tempfile.mkdtemp(prefix="pruebas_diagnosticos_",
-                               dir=original_ruta.parent)
+                               dir=config.ruta_temporal())
     db.RUTA_DB = Path(carpeta) / "prueba.db"
     try:
         db.inicializar_esquema()

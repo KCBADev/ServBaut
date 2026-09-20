@@ -232,13 +232,27 @@ los tenga en sus listas. `eliminar_nota` revierte a Pendiente cualquier
 cotización que apunte a la nota borrada, en vez de bloquear el borrado o dejar
 una referencia rota.
 
-**La base vive en `D:\TallerBautista\taller.db`, fuera de la carpeta del
-proyecto.** Antes estaba junto al código en C:, hasta que ese disco se quedó
-con apenas 115 MB libres y una escritura falló a medio guardar una nota. La
-ruta está fija en `db.RUTA_DB` (`db.py`); si el proyecto corre en otra máquina
-sin disco D:, hay que ajustar esa línea a mano — se prefirió así, explícito y
-simple, a leer una variable de entorno para una sola computadora. La carpeta
-se crea sola la primera vez que algo escribe en la base.
+**La base vive fuera de la carpeta del proyecto.** Antes estaba junto al
+código en C:, hasta que ese disco se quedó con apenas 115 MB libres y una
+escritura falló a medio guardar una nota.
+
+Dónde vive exactamente lo decide `config.py` leyendo el entorno, en este
+orden:
+
+| Variable | Qué es |
+|---|---|
+| `TALLER_DB` | Ruta completa al archivo. Es la que usa el servidor. |
+| `TALLER_DATOS` | Carpeta; el archivo se llama `taller.db` dentro. |
+| *(nada)* | `D:\TallerBautista\taller.db` en Windows si esa carpeta existe; si no, `datos/taller.db` dentro del proyecto. |
+
+En la computadora del taller no hay que configurar nada: la tercera fila la
+deja donde siempre estuvo. La carpeta se crea sola la primera vez que algo
+escribe en la base.
+
+Otras variables, todas opcionales: `TALLER_RESPALDOS` (carpeta de respaldos),
+`TALLER_TMP` (carpeta de temporales), `TALLER_MINUTOS_INACTIVIDAD`,
+`TALLER_HORAS_SESION`, `TALLER_MAX_INTENTOS`, `TALLER_ADMIN_USUARIO` y
+`TALLER_ADMIN_PASSWORD`.
 
 ## Seguridad
 

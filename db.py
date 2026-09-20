@@ -22,6 +22,8 @@ from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Iterator
 
+import config
+
 # Concepto que no vive en el catálogo: la mano de obra cruza 8 categorías con
 # precios muy distintos, así que se captura libre y con precio manual.
 CONCEPTO_LIBRE = "Mano de obra"
@@ -30,10 +32,16 @@ CONCEPTO_LIBRE = "Mano de obra"
 # carpeta se mueve o se sube a un repositorio.
 RAIZ = Path(__file__).resolve().parent
 
-# La base vive fuera del proyecto, en D:, porque el disco C: se quedó sin
-# espacio libre y provocó errores de escritura. Si el proyecto corre en otra
-# máquina o D: no existe ahí, hay que ajustar esta ruta a mano.
-RUTA_DB = Path(r"D:\TallerBautista\taller.db")
+# Dónde vive la base lo decide `config.py` a partir del entorno: en la
+# computadora del taller sigue saliendo D:\TallerBautista\taller.db sin
+# configurar nada, y en el servidor sale de la variable TALLER_DB.
+#
+# Sigue siendo una variable de módulo y no una llamada a función porque medio
+# proyecto la usa así (`db.RUTA_DB.exists()`, `db.RUTA_DB.stat()`) y las tres
+# suites la reasignan para trabajar sobre una base temporal. Consecuencia a
+# tener presente: se resuelve una sola vez, al importar `db`, así que cambiar
+# TALLER_DB requiere reiniciar el proceso.
+RUTA_DB = config.ruta_db()
 RUTA_ESQUEMA = RAIZ / "esquema.sql"
 
 
