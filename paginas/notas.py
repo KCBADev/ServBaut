@@ -275,12 +275,14 @@ def _detalle(nota: dict) -> None:
     else:
         st.warning("Esta nota no tiene vehículo asignado.")
 
-    st.download_button(
-        "📄 Descargar nota en PDF",
-        data=descargas.pdf_nota(nota["id_nota"]),
-        file_name=nota_pdf.nombre_archivo(nota["id_nota"]),
-        mime="application/pdf",
-        help="Documento imprimible, listo para entregar o mandar al cliente.",
+    folio = nota["id_nota"]
+    descargas.boton_pdf(
+        folio,
+        generar=lambda: descargas.pdf_nota(folio),
+        nombre_archivo=nota_pdf.nombre_archivo(folio),
+        etiqueta_descarga="📄 Descargar nota en PDF",
+        etiqueta_preparar="📄 Preparar nota en PDF",
+        ayuda="Documento imprimible, listo para entregar o mandar al cliente.",
     )
 
     st.dataframe(_tabla_partidas(nota["partidas"]), width="stretch",
@@ -374,7 +376,13 @@ def _estado_y_pago(nota: dict) -> None:
         if estado != nota["estado"] and st.button(
                 "Cambiar estado", key=f"btn-estado-{nota['id_nota']}"):
             db.cambiar_estado(nota["id_nota"], estado)
-            st.success(f"La nota pasó a «{estado}».")
+            mensaje = f"La nota pasó a «{estado}»."
+            # Al entregar, `cambiar_estado` ya la marcó como pagada por
+            # completo; se avisa para que no extrañe ver saltar el campo
+            # «Pagado» sin haberlo tocado.
+            if estado == "Entregado" and nota["pagado_centavos"] < nota["total_centavos"]:
+                mensaje += " Se marcó como pagada por completo."
+            st.success(mensaje)
             st.rerun()
 
     with col2:
@@ -458,9 +466,13 @@ def _editar_partidas(nota: dict) -> None:
         f"({db.formato_pesos(p['total_centavos'])})": p["id_partida"]
         for p in nota["partidas"]
     }
+    # La llave incluye el número de partidas: al quitar una, la lista
+    # cambia de tamaño y el selector arranca sin selección heredada, en vez
+    # de quedar apuntando —tras la renumeración— a una partida distinta de
+    # la que se acababa de quitar.
     elegida = col1.selectbox("Quitar una partida", list(lineas), index=None,
                              placeholder="Elige el renglón a quitar…",
-                             key=f"quitar-{nota['id_nota']}")
+                             key=f"quitar-{nota['id_nota']}-{len(lineas)}")
     col2.write("")
     if elegida and col2.button("Quitar", key=f"btn-quitar-{nota['id_nota']}"):
         try:
@@ -474,9 +486,15 @@ def _editar_partidas(nota: dict) -> None:
     # --- Agregar una partida ---
     st.divider()
     st.markdown("##### Agregar una partida a esta nota")
-    nueva = formulario_partida(f"edicion-{nota['id_nota']}")
+    # Mismo motivo que en crear_nota.py/cotizaciones.py: una `clave` fija
+    # dejaba el producto/cantidad/precio del renglón anterior puestos al
+    # agregar el siguiente. Versionar la llave por nota da widgets en
+    # blanco en cada renglón nuevo.
+    version = st.session_state.get(f"partida_version-{nota['id_nota']}", 0)
+    nueva = formulario_partida(f"edicion-{nota['id_nota']}-{version}")
     if nueva:
         db.agregar_partida(nota["id_nota"], nueva)
+        st.session_state[f"partida_version-{nota['id_nota']}"] = version + 1
         st.success("Partida agregada.")
         st.rerun()
 
@@ -590,9 +608,13 @@ def _pestana_consultar() -> None:
     st.dataframe(tabla, width="stretch", hide_index=True)
 
     st.divider()
+    folios = [n["id_nota"] for n in notas]
+    # «Crear nota» manda aquí con el folio recién guardado como query param,
+    # para no duplicar el panel de edición en dos pantallas.
+    preseleccion = st.query_params.get("folio")
+    indice = folios.index(preseleccion) if preseleccion in folios else None
     folio = st.selectbox(
-        "Abrir una nota", [n["id_nota"] for n in notas],
-        index=None, placeholder="Elige un folio…",
+        "Abrir una nota", folios, index=indice, placeholder="Elige un folio…",
     )
     if folio:
         _panel_nota(folio)

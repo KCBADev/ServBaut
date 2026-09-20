@@ -25,7 +25,7 @@ completo, decisión por decisión, está en [`ARCHITECTURE.md`](ARCHITECTURE.md)
 
 ## En pocas palabras
 
-- **226 pruebas automatizadas** en tres suites independientes — esquema, capa
+- **268 pruebas automatizadas** en tres suites independientes — esquema, capa
   de datos y pantallas — corriendo sobre bases temporales, nunca sobre los
   datos reales del taller.
 - **La orden de trabajo se imprime con Chromium sin cabeza**, no con una
@@ -51,6 +51,11 @@ completo, decisión por decisión, está en [`ARCHITECTURE.md`](ARCHITECTURE.md)
   su detalle, **editarla** (cabecera, cantidades, precios, agregar y quitar
   renglones), **eliminarla** y **descargar la orden de trabajo en PDF**, con el
   diseño del taller, lista para imprimir o mandar al cliente.
+- **Diagnósticos con escáner** — el reporte de códigos de falla (DTC) que hoy
+  se entrega en papel: mismo cliente y vehículo que una nota, la lista de
+  códigos agrupada por sistema (con su gravedad) y el resumen y
+  recomendaciones, capturados a mano tras leer el escáner, y **descargables en
+  PDF** con el mismo diseño del taller.
 - **Clientes** — alta con aviso de nombre duplicado, búsqueda que ignora
   acentos y mayúsculas, y edición.
 - **Catálogo** — alta, edición, búsqueda, filtros por tipo y categoría, y
@@ -237,11 +242,15 @@ se crea sola la primera vez que algo escribe en la base.
 
 ## Seguridad
 
-`.streamlit/config.toml` ata el servidor a `localhost`. Sin eso Streamlit
-escucha en todas las interfaces de red y el taller quedaría accesible desde
-fuera, con datos de clientes detrás de un login sobre HTTP sin cifrar. Si
-necesitas abrirla a una tablet dentro del taller, cambia `address` a `0.0.0.0`
-— pero solo en tu red local, nunca hacia internet.
+`.streamlit/config.toml` tiene `address = "0.0.0.0"`: el servidor escucha en
+toda interfaz de red, para poder entrar desde un celular o una tablet en el
+mismo Wi-Fi del taller (`http://<IP local de la computadora>:8501`). Sigue
+siendo HTTP sin cifrar, así que esto vale **solo dentro de la red del
+taller** — nunca abrir el puerto hacia internet (por ejemplo con
+port-forwarding en el router), porque los datos de clientes y el login
+viajarían sin cifrar a la vista de cualquiera. Si el taller alguna vez no
+necesita el acceso por Wi-Fi, lo más seguro es volver `address` a
+`"localhost"`.
 
 `taller.db` está en el `.gitignore` y además vive fuera de la carpeta del
 proyecto (ver la siguiente sección): contiene datos de clientes y hashes de

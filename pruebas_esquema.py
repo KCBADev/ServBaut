@@ -331,6 +331,61 @@ def main() -> None:
             ).fetchone()["n"]
             comprobar("Borrar una cotización borra sus renglones", restantes == 0)
 
+            print("\n--- Diagnósticos con escáner ---")
+            rechaza(
+                "Rechaza un folio de diagnóstico con formato inválido", c,
+                """INSERT INTO diagnosticos (id_diagnostico, id_cliente,
+                                             id_vehiculo, fecha)
+                   VALUES ('X-001', 1, 1, '2025-01-15')""", (),
+            )
+            rechaza(
+                "Rechaza un diagnóstico sin vehículo", c,
+                """INSERT INTO diagnosticos (id_diagnostico, id_cliente, fecha)
+                   VALUES ('DX-900', 1, '2025-01-15')""", (),
+            )
+            c.execute(
+                """INSERT INTO diagnosticos (id_diagnostico, id_cliente,
+                                             id_vehiculo, fecha, tecnico)
+                   VALUES ('DX-001', 1, 1, '2025-03-01', 'R. Bautista')"""
+            )
+            rechaza(
+                "Rechaza una gravedad desconocida", c,
+                """INSERT INTO diagnostico_codigos (id_diagnostico, linea,
+                        sistema, codigo, descripcion, significado, gravedad)
+                   VALUES ('DX-001', 1, 'Motor', 'P0135', 'X', 'Y',
+                           'Inventada')""", (),
+            )
+            rechaza(
+                "Rechaza un código de un diagnóstico inexistente", c,
+                """INSERT INTO diagnostico_codigos (id_diagnostico, linea,
+                        sistema, codigo, descripcion, significado)
+                   VALUES ('DX-999', 1, 'Motor', 'P0135', 'X', 'Y')""", (),
+            )
+            c.execute(
+                """INSERT INTO diagnostico_codigos (id_diagnostico, linea,
+                        sistema, codigo, descripcion, significado, gravedad)
+                   VALUES ('DX-001', 1, 'Motor', 'P0135',
+                           'Fallo en el calentador', 'Sensor dañado', 'ALTA')"""
+            )
+            c.execute(
+                """INSERT INTO diagnostico_codigos (id_diagnostico, linea,
+                        sistema, codigo, descripcion, significado, gravedad)
+                   VALUES ('DX-001', 2, 'Frenos ABS', 'C1145',
+                           'Fallo circuito de entrada', 'Sin señal de rueda',
+                           'ALTA')"""
+            )
+            total = c.execute(
+                "SELECT COUNT(*) n FROM diagnostico_codigos WHERE id_diagnostico='DX-001'"
+            ).fetchone()["n"]
+            comprobar(f"Los códigos quedan asociados al diagnóstico (={total})",
+                      total == 2)
+
+            c.execute("DELETE FROM diagnosticos WHERE id_diagnostico='DX-001'")
+            restantes = c.execute(
+                "SELECT COUNT(*) n FROM diagnostico_codigos WHERE id_diagnostico='DX-001'"
+            ).fetchone()["n"]
+            comprobar("Borrar un diagnóstico borra sus códigos", restantes == 0)
+
             print("\n--- Contraseñas ---")
             auth.crear_usuario(c, "prueba", "MiClaveSegura123", rol="admin")
             fila = c.execute(

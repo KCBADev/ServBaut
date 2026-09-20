@@ -65,15 +65,15 @@
   tfoot .bar div span:nth-child(2){flex:1;background:#9aa1a8}
   tfoot .bar div span:nth-child(3){flex:1;background:#6f7a83}
   tfoot .bar div span:nth-child(4){flex:2.6;background:#2563EB}
-  tfoot .total td { background:#f2f4f5; padding:9px 14px; vertical-align:middle; }
+  tfoot .total td { background:#f2f4f5; padding:14px; vertical-align:middle; }
   tfoot .total .lbl { display:flex; align-items:center; gap:14px; }
-  tfoot .total .tick { width:5px; height:20px; background:#6f7a83; }
-  tfoot .total .word { font-size:14px; font-weight:700; letter-spacing:.3em; }
-  tfoot .total .note { font-size:9px; letter-spacing:.2em; font-weight:600; color:#4a5057; }
+  tfoot .total .tick { width:5px; height:26px; background:#6f7a83; }
+  tfoot .total .word { font-size:16px; font-weight:700; letter-spacing:.3em; }
+  tfoot .total .note { font-size:10px; letter-spacing:.2em; font-weight:600; color:#4a5057; }
   tfoot .total td.amt { padding:0; }
-  tfoot .total td.amt div { background:#e6e9eb; border-left:2px solid #6f7a83; padding:9px 14px; display:flex; align-items:baseline; justify-content:flex-end; gap:6px; }
-  tfoot .total td.amt .cur { font-size:12px; font-weight:700; color:#4a5057; }
-  tfoot .total td.amt .val { font-size:18px; font-weight:700; letter-spacing:.04em; }
+  tfoot .total td.amt div { background:#e6e9eb; border-left:2px solid #6f7a83; padding:14px; display:flex; align-items:baseline; justify-content:flex-end; gap:6px; }
+  tfoot .total td.amt .cur { font-size:14px; font-weight:700; color:#4a5057; }
+  tfoot .total td.amt .val { font-size:22px; font-weight:700; letter-spacing:.04em; }
   .terms { margin-top:auto; padding:14px 40px 0; }
   .terms-in { border-top:1px solid #c3c8cc; padding-top:10px; }
   .terms-h { text-align:center; font-size:9.5px; letter-spacing:.28em; font-weight:700; color:#2563EB; margin-bottom:8px; }
@@ -88,6 +88,32 @@
   .foot-bar span:nth-child(2){flex:1;background:#9aa1a8}
   .foot-bar span:nth-child(3){flex:1;background:#16191c}
   .foot-bar span:nth-child(4){flex:2.4;background:#2563EB}
+
+  /* ===== Extensiones para el reporte de diagnóstico con escáner ===== */
+  .sist-h { display:flex; align-items:baseline; gap:10px; margin:14px 0 4px; }
+  .sist-h .num { font-size:13px; font-weight:700; color:#2563EB; flex:none; }
+  .sist-h .nom { font-size:13px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; }
+  .sist-h .cta { margin-left:auto; font-size:10.5px; font-weight:600; color:#6f7a83; white-space:nowrap; }
+  .sist-nota { font-size:11px; color:#4a5057; margin:0 0 10px; font-style:italic; }
+  table.dtc { margin-bottom:6px; }
+  table.dtc th.cod, table.dtc td.cod { width:64px; text-align:center; }
+  table.dtc td.cod { font-weight:700; color:#14213D; }
+  table.dtc th.sig { text-align:left; }
+  table.dtc th.grav, table.dtc td.grav { width:82px; text-align:center; background:#e6e9eb; border-left:2px solid #6f7a83; }
+  table.dtc td { vertical-align:top; padding:8px 14px; height:auto; }
+  table.dtc td.desc, table.dtc td.sig { font-size:12px; line-height:1.4; }
+  .pill { display:inline-block; padding:3px 9px; border-radius:3px; font-size:9.5px; font-weight:700; letter-spacing:.08em; color:#fff; }
+  .pill-alta { background:#b3261e; }
+  .pill-media { background:#a15c00; }
+  .pill-baja { background:#2f6b3a; }
+  .pill-info { background:#6f7a83; }
+  .otros { margin-top:10px; padding:9px 14px; background:#f2f4f5; border:1px solid #d7dbde; font-size:11.5px; line-height:1.5; }
+  .otros .k { font-weight:700; letter-spacing:.1em; font-size:10px; color:#2563EB; margin-right:6px; }
+  .resumen { margin-top:6px; border:2px solid #16191c; padding:11px 16px; }
+  .resumen-h { font-size:10.5px; letter-spacing:.24em; font-weight:700; color:#2563EB; margin-bottom:8px; }
+  .resumen-cuerpo { font-size:12px; line-height:1.6; white-space:normal; }
+  .firmas { display:flex; gap:60px; margin:14px 40px 0; padding-top:6px; }
+  .firmas .linea { flex:1; border-top:1px solid #16191c; padding-top:7px; text-align:center; font-size:10.5px; letter-spacing:.12em; color:#4a5057; }
 </style>
 </head>
 <body>
@@ -122,51 +148,35 @@
     <div class="sect-h"><span class="l"></span><span class="t">DATOS DEL CLIENTE Y VEHÍCULO</span><span class="l"></span></div>
     <div class="meta">
       <div class="cell wide"><div class="k">NOMBRE</div><div class="v">{{CLIENTE_NOMBRE}}</div></div>
+      <div class="cell"><div class="k">CELULAR</div><div class="v">{{CELULAR}}</div></div>
       <div class="cell"><div class="k">FECHA</div><div class="v">{{FECHA}}</div></div>
       <div class="cell"><div class="k">MARCA</div><div class="v">{{MARCA}}</div></div>
-      <div class="cell"><div class="k">AÑO</div><div class="v">{{ANIO}}</div></div>
-      <div class="cell"><div class="k">CELULAR</div><div class="v">{{CELULAR}}</div></div>
-      <div class="cell"><div class="k">COLOR</div><div class="v">{{COLOR}}</div></div>
       <div class="cell"><div class="k">TIPO</div><div class="v">{{TIPO}}</div></div>
+      <div class="cell"><div class="k">AÑO</div><div class="v">{{ANIO}}</div></div>
+      <div class="cell"><div class="k">COLOR</div><div class="v">{{COLOR}}</div></div>
       <div class="cell"><div class="k">PLACAS</div><div class="v">{{PLACAS}}</div></div>
+      <div class="cell"><div class="k">ATENDIÓ</div><div class="v">{{TECNICO}}</div></div>
+      <div class="cell"><div class="k">MÓDULOS ANALIZADOS</div><div class="v">{{NUM_MODULOS}}</div></div>
+      <div class="cell wide"><div class="k">CÓDIGOS IDENTIFICADOS</div><div class="v">{{NUM_CODIGOS}}</div></div>
     </div>
   </div>
 
-  <div class="sect" style="padding-top:20px">
-    <table>
-      <thead>
-        <tr><th class="desc">DESCRIPCIÓN</th><th class="prec">PRECIO</th></tr>
-      </thead>
-      <tbody>
-      <!-- INICIO FILA (repetir por concepto) -->
-      <tr>
-        <td class="desc">{{CONCEPTO_DESCRIPCION}}</td>
-        <td class="prec">{{CONCEPTO_PRECIO}}</td>
-      </tr>
-      <!-- FIN FILA -->
-        <tr class="sum"><td>SUBTOTAL</td><td class="prec">{{SUBTOTAL}}</td></tr>
-        <tr class="sum"><td>IMPUESTO SOBRE EL VALOR AGREGADO (IVA)</td><td class="prec">{{IVA}}</td></tr>
-      </tbody>
-      <tfoot>
-        <tr class="bar"><td colspan="2"><div><span></span><span></span><span></span><span></span></div></td></tr>
-        <tr class="total">
-          <td><div class="lbl"><span class="tick"></span><span class="word">TOTAL</span><span class="note">MXN · IVA INCLUIDO</span></div></td>
-          <td class="amt"><div><span class="cur">$</span><span class="val">{{TOTAL}}</span></div></td>
-        </tr>
-      </tfoot>
-    </table>
+  <div class="sect" style="padding-top:6px">
+{{SISTEMAS_HTML}}
   </div>
-
-  <div class="terms">
-    <div class="terms-in">
-      <div class="terms-h">CONDICIONES DEL SERVICIO</div>
-      <div class="terms-g">
-        <div><span class="n">01</span><span class="t">No nos hacemos responsables por daños ocasionados por desastres naturales.</span></div>
-        <div><span class="n">02</span><span class="t">Tiene 2 días para recoger su vehículo una vez concluida la reparación; de lo contrario se cobra pensión.</span></div>
-        <div><span class="n">03</span><span class="t">Tiene 30 días de garantía conservando su nota de trabajo.</span></div>
-      </div>
+{{OTROS_MODULOS_HTML}}
+  <div class="sect" style="padding-top:4px">
+    <div class="resumen">
+      <div class="resumen-h">RESUMEN Y RECOMENDACIONES</div>
+      <div class="resumen-cuerpo">{{RESUMEN_HTML}}</div>
     </div>
   </div>
+
+  <div class="firmas">
+    <div class="linea">FIRMA DEL TÉCNICO</div>
+    <div class="linea">FIRMA / ENTERADO DEL CLIENTE</div>
+  </div>
+
   <div class="slogan">SERIEDAD · RESPETO · GARANTÍA</div>
   <div class="foot-bar"><span></span><span></span><span></span><span></span></div>
 </div>

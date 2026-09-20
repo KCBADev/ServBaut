@@ -12,10 +12,12 @@ textColor = "#D2D8DE"                 # gris claro de alto contraste
 font = "sans serif"
 
 [server]
-# Solo esta computadora puede abrir la app. Sin esto Streamlit escucha en todas
-# las interfaces de red y el taller quedaría accesible desde fuera, con datos de
-# clientes detrás de un login sobre HTTP sin cifrar.
-address = "localhost"
+# Escucha en toda interfaz de red, no solo en esta computadora: así se puede
+# entrar desde celulares/tablets/laptops en el mismo Wi-Fi del taller
+# (http://<IP local>:8501). Sigue siendo HTTP sin cifrar, así que esto vale
+# SOLO dentro de una red de confianza — nunca abrir el puerto hacia internet
+# (router/port-forwarding) con esta configuración.
+address = "0.0.0.0"
 port = 8501
 headless = true
 

@@ -35,7 +35,8 @@ import db
 TABLAS = [
     "categorias", "acciones", "marcas", "categorias_producto",
     "marcas_producto", "clientes", "vehiculos", "catalogo", "productos",
-    "notas", "partidas", "usuarios", "taller",
+    "notas", "partidas", "cotizaciones", "cotizacion_partidas",
+    "diagnosticos", "diagnostico_codigos", "usuarios", "taller",
 ]
 
 # Las columnas de dinero se guardan en centavos; se acompañan de su versión en

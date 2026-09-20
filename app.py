@@ -20,7 +20,8 @@ import auth
 import db
 import styles
 from paginas import (catalogo, clientes, configuracion, cotizaciones,
-                     crear_nota, dashboard, notas, reportes, vehiculos)
+                     crear_nota, dashboard, diagnosticos, notas, reportes,
+                     vehiculos)
 
 # El monograma del taller, ya revisado al gris claro del tema y recortado al
 # ícono. Se genera desde el logo original con `assets/README.md`.
@@ -319,6 +320,8 @@ def main() -> None:
                     url_path="crear-nota", icon=":material/note_add:"),
             st.Page(notas.mostrar, title="Notas de servicio", url_path="notas",
                     icon=":material/receipt_long:"),
+            st.Page(diagnosticos.mostrar, title="Diagnósticos con escáner",
+                    url_path="diagnosticos", icon=":material/troubleshoot:"),
         ],
         "Registro": [
             st.Page(vehiculos.mostrar, title="Vehículos", url_path="vehiculos",

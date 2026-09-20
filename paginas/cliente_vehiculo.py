@@ -20,14 +20,47 @@ import streamlit as st
 import db
 
 
+def _tras_dar_de_alta(prefijo: str, tipo: str, id_nuevo: int,
+                      aviso: str) -> None:
+    """
+    Deja el bloque listo tras un alta (o tras reusar un registro existente).
+
+    Antes esto era un `st.success(...)` seguido de `st.rerun()`, y esa pareja
+    es justo lo que produjo los duplicados que hubo que limpiar a mano: el
+    rerun tira el mensaje sin que dé tiempo a verlo, y como el radio y los
+    campos conservan su valor, reaparecía el MISMO formulario lleno con el
+    mismo botón. Parecía que no había pasado nada, así que el usuario volvía
+    a pulsar «Registrar» y se creaba otra fila.
+
+    Ahora: el aviso se guarda para pintarlo en la pasada siguiente, y se sube
+    el número de versión de las llaves de los widgets, con lo que el bloque
+    renace en la rama «ya registrado» con lo recién dado de alta seleccionado
+    y los campos del alta en blanco. Se versiona en vez de escribir la llave
+    del radio porque Streamlit prohíbe modificar la llave de un widget ya
+    instanciado en la misma pasada.
+    """
+    st.session_state[f"{prefijo}_{tipo}_creado"] = id_nuevo
+    st.session_state[f"{prefijo}_{tipo}_aviso"] = aviso
+    clave_version = f"{prefijo}_{tipo}_version"
+    st.session_state[clave_version] = st.session_state.get(clave_version, 0) + 1
+    st.rerun()
+
+
 def bloque_cliente(prefijo: str) -> int | None:
     """Elige un cliente existente o da de alta uno nuevo. Devuelve su id."""
     clave_creado = f"{prefijo}_cliente_creado"
+    version = st.session_state.get(f"{prefijo}_cliente_version", 0)
+    clave = lambda nombre: f"{prefijo}_{nombre}_{version}"  # noqa: E731
+
+    aviso = st.session_state.pop(f"{prefijo}_cliente_aviso", None)
+    if aviso:
+        st.success(aviso)
+
     clientes = db.listar_clientes()
     modo = st.radio(
         "Origen del cliente", ["Ya es cliente", "Cliente nuevo"],
         horizontal=True, label_visibility="collapsed",
-        key=f"{prefijo}_modo_cliente")
+        key=clave("modo_cliente"))
 
     if modo == "Ya es cliente":
         if not clientes:
@@ -45,7 +78,7 @@ def bloque_cliente(prefijo: str) -> int | None:
             "Cliente *", list(opciones), index=indice,
             placeholder="Busca por nombre o teléfono…",
             help="La búsqueda ignora acentos y mayúsculas.",
-            key=f"{prefijo}_sel_cliente")
+            key=clave("sel_cliente"))
         if etiqueta is None:
             return None
         cliente = opciones[etiqueta]
@@ -59,24 +92,48 @@ def bloque_cliente(prefijo: str) -> int | None:
     siguiente = max((c["id_cliente"] for c in clientes), default=0) + 1
     col1, col2, col3 = st.columns([0.9, 2.6, 1.5])
     col1.text_input("ID_Cliente", value=str(siguiente), disabled=True,
-                    key=f"{prefijo}_id_preview",
+                    key=clave("id_preview"),
                     help="Se asigna solo: es el consecutivo de llegada al taller.")
-    nombre = col2.text_input("Nombre *", key=f"{prefijo}_cliente_nombre",
+    nombre = col2.text_input("Nombre *", key=clave("cliente_nombre"),
                              placeholder="Nombre completo")
-    telefono = col3.text_input("Teléfono", key=f"{prefijo}_cliente_tel",
+    telefono = col3.text_input("Teléfono", key=clave("cliente_tel"),
                                placeholder="10 dígitos (opcional)")
 
+    # Mismo nombre Y mismo teléfono es la misma persona: se bloquea el alta y
+    # se ofrece usar la ficha que ya existe. Mismo nombre con otro teléfono
+    # solo se advierte: dos personas pueden llamarse igual.
+    repetido = None
     if nombre.strip():
-        parecidos = db.buscar_nombres_parecidos(nombre)
-        if parecidos:
-            st.warning(
-                "Ya existe un cliente con ese nombre: "
-                + ", ".join(f"#{p['id_cliente']} {p['nombre']}"
-                            for p in parecidos)
-                + ". Puedes registrarlo igual si es otra persona."
-            )
+        try:
+            repetido = db.buscar_cliente_igual(nombre, telefono)
+        except ValueError:
+            repetido = None  # teléfono a medio teclear; se avisa al registrar
 
-    if st.button("Registrar cliente", key=f"{prefijo}_btn_cliente"):
+        if repetido:
+            st.error(
+                f"**{repetido['nombre']}** ya está registrado como el cliente "
+                f"#{repetido['id_cliente']}"
+                + (f" con ese mismo teléfono ({repetido['telefono']})."
+                   if repetido["telefono"] else " (sin teléfono).")
+            )
+            if st.button("Usar ese cliente", type="primary",
+                         key=clave("usar_cliente")):
+                _tras_dar_de_alta(
+                    prefijo, "cliente", repetido["id_cliente"],
+                    f"Se usará el cliente #{repetido['id_cliente']} — "
+                    f"{repetido['nombre']}, ya seleccionado abajo.")
+        else:
+            parecidos = db.buscar_nombres_parecidos(nombre)
+            if parecidos:
+                st.warning(
+                    "Ya existe un cliente con ese nombre: "
+                    + ", ".join(f"#{p['id_cliente']} {p['nombre']}"
+                                for p in parecidos)
+                    + ". Puedes registrarlo igual si es otra persona."
+                )
+
+    if st.button("Registrar cliente", key=clave("btn_cliente"),
+                 disabled=bool(repetido)):
         if not nombre.strip():
             st.error("El nombre es obligatorio.")
             return None
@@ -85,9 +142,9 @@ def bloque_cliente(prefijo: str) -> int | None:
         except ValueError as error:
             st.error(str(error))
             return None
-        st.session_state[clave_creado] = nuevo
-        st.success(f"Cliente **{nombre.strip()}** registrado como #{nuevo}.")
-        st.rerun()
+        _tras_dar_de_alta(prefijo, "cliente", nuevo,
+                          f"Cliente **{nombre.strip()}** registrado como "
+                          f"#{nuevo} y ya seleccionado abajo.")
 
     return st.session_state.get(clave_creado)
 
@@ -100,10 +157,16 @@ def bloque_vehiculo(prefijo: str, id_cliente: int | None) -> int | None:
     vehículo siempre pertenece a alguien, así que el alta queda amarrada a él.
     """
     clave_creado = f"{prefijo}_vehiculo_creado"
+    version = st.session_state.get(f"{prefijo}_vehiculo_version", 0)
+    clave = lambda nombre: f"{prefijo}_{nombre}_{version}"  # noqa: E731
 
     if id_cliente is None:
         st.info("Elige o registra primero el cliente para capturar su vehículo.")
         return None
+
+    aviso = st.session_state.pop(f"{prefijo}_vehiculo_aviso", None)
+    if aviso:
+        st.success(aviso)
 
     suyos = db.listar_vehiculos(id_cliente=id_cliente, solo_activos=True)
     modo = st.radio(
@@ -111,7 +174,7 @@ def bloque_vehiculo(prefijo: str, id_cliente: int | None) -> int | None:
         ["Vehículo registrado", "Vehículo nuevo"],
         index=0 if suyos else 1,
         horizontal=True, label_visibility="collapsed",
-        key=f"{prefijo}_modo_vehiculo")
+        key=clave("modo_vehiculo"))
 
     if modo == "Vehículo registrado":
         if not suyos:
@@ -128,7 +191,7 @@ def bloque_vehiculo(prefijo: str, id_cliente: int | None) -> int | None:
                       None) if recien else None
         etiqueta = st.selectbox("Vehículo *", list(opciones), index=indice,
                                 placeholder="Elige el carro que trajo…",
-                                key=f"{prefijo}_sel_vehiculo")
+                                key=clave("sel_vehiculo"))
         if etiqueta is None:
             return None
         v = opciones[etiqueta]
@@ -143,32 +206,65 @@ def bloque_vehiculo(prefijo: str, id_cliente: int | None) -> int | None:
     marcas = db.listar_marcas()
     col1, col2, col3 = st.columns([1.6, 1.8, 1])
     marca = col1.selectbox("Marca *", marcas, index=None, placeholder="Elige…",
-                           key=f"{prefijo}_veh_marca")
-    modelo = col2.text_input("Tipo", key=f"{prefijo}_veh_modelo",
+                           key=clave("veh_marca"))
+    modelo = col2.text_input("Tipo", key=clave("veh_modelo"),
                              placeholder="Ej. Patriot, Malibú, Mazda-3",
                              help="Qué carro o camioneta es, específicamente, "
                                   "de esa marca.")
     anio = col3.number_input("Año", min_value=1900, max_value=2100, value=None,
-                             step=1, placeholder="—", key=f"{prefijo}_veh_anio")
+                             step=1, placeholder="—", key=clave("veh_anio"))
 
     col4, col5, col6 = st.columns([1.2, 1.4, 1])
-    color = col4.text_input("Color", key=f"{prefijo}_veh_color")
-    placas = col5.text_input("Placas", key=f"{prefijo}_veh_placas")
+    color = col4.text_input("Color", key=clave("veh_color"))
+    placas = col5.text_input(
+        "Placas", key=clave("veh_placas"),
+        help="Es lo que distingue dos carros iguales. Si el carro no la trae, "
+             "déjala en blanco.")
+
+    # Con placa manda la placa; sin placa, el mismo carro del mismo dueño ya
+    # registrado cuenta como repetido. En los dos casos se ofrece usar el que
+    # existe en vez de crear otro — que es como aparecieron seis Camaro
+    # idénticos del mismo cliente.
+    repetido = db.buscar_vehiculo_igual(
+        id_cliente, marca, modelo, int(anio) if anio else None, color,
+        placas) if marca else None
+
+    if repetido:
+        st.error(
+            f"Ese vehículo ya está registrado como #{repetido['id_vehiculo']}: "
+            f"{db.descripcion_vehiculo(repetido)} "
+            f"(dueño: {repetido['cliente']})."
+            + ("" if repetido["placas"] else
+               " Si de verdad son dos carros distintos, captura su placa.")
+        )
+        if st.button("Usar ese vehículo", type="primary",
+                     key=clave("usar_veh")):
+            _tras_dar_de_alta(
+                prefijo, "vehiculo", repetido["id_vehiculo"],
+                f"Se usará el vehículo #{repetido['id_vehiculo']} — "
+                f"{db.descripcion_vehiculo(repetido)}, ya seleccionado arriba.")
+
     col6.write("")
-    if col6.button("Registrar vehículo", key=f"{prefijo}_btn_veh"):
+    if col6.button("Registrar vehículo", key=clave("btn_veh"),
+                   disabled=bool(repetido)):
         if not marca:
             st.error("La marca es obligatoria.")
         else:
-            nuevo = db.crear_vehiculo(
-                id_cliente, marca, modelo, int(anio) if anio else None,
-                color, placas)
-            st.session_state[clave_creado] = nuevo
-            st.success(f"Vehículo registrado como #{nuevo}.")
-            st.rerun()
+            try:
+                nuevo = db.crear_vehiculo(
+                    id_cliente, marca, modelo, int(anio) if anio else None,
+                    color, placas)
+            except ValueError as error:
+                st.error(str(error))
+            else:
+                _tras_dar_de_alta(
+                    prefijo, "vehiculo", nuevo,
+                    f"Vehículo registrado como #{nuevo} y ya seleccionado "
+                    f"arriba.")
 
     with st.expander("¿La marca no está en la lista?"):
-        nueva = st.text_input("Marca nueva", key=f"{prefijo}_marca_nueva")
-        if (st.button("Agregar marca", key=f"{prefijo}_btn_marca")
+        nueva = st.text_input("Marca nueva", key=clave("marca_nueva"))
+        if (st.button("Agregar marca", key=clave("btn_marca"))
                 and nueva.strip()):
             db.agregar_marca(nueva)
             st.success(f"Marca **{nueva.strip()}** agregada.")

@@ -32,16 +32,17 @@ verdad. Varias decisiones de abajo solo tienen sentido en ese contexto.
 
 ```
 app.py                Login y navegación — el único punto de entrada
-db.py                 TODO el SQL del proyecto vive aquí (1,596 líneas, 70 funciones)
+db.py                 TODO el SQL del proyecto vive aquí (1,784 líneas, 77 funciones)
 auth.py               Hash y verificación de contraseñas
 nota_pdf.py           Arma el HTML de la orden/cotización y lo imprime con Chromium
+diagnostico_pdf.py    Arma el HTML del reporte de diagnóstico (agrupado por sistema) e imprime igual
 exportar.py           Vuelca la base a CSV / Excel / SQL para análisis externo
 styles.py             Paleta y hoja de estilo de toda la interfaz, en un solo lugar
 esquema.sql           Definición completa: tablas, triggers, índices, CHECKs
-paginas/              11 pantallas, una por módulo — cada una importa db.py, nunca escribe SQL
+paginas/              12 pantallas, una por módulo — cada una importa db.py, nunca escribe SQL
 paginas/descargas.py  Envoltorios cacheados de los archivos descargables (ver más abajo)
 historico/            Migraciones ya aplicadas; quedan como registro, no se vuelven a correr
-pruebas_*.py          3 suites independientes — 226 pruebas en total
+pruebas_*.py          3 suites independientes — 268 pruebas en total
 ```
 
 **Regla de una sola vía:** ninguna pantalla en `paginas/` ejecuta SQL directo.
@@ -52,7 +53,7 @@ un total.
 
 ## El modelo de datos
 
-15 tablas, 8 triggers, 49 restricciones `CHECK`, 17 índices. Las decisiones
+17 tablas, 8 triggers, 58 restricciones `CHECK`, 20 índices. Las decisiones
 que valen la pena explicar:
 
 ### El dinero se guarda en centavos, como entero
@@ -93,6 +94,20 @@ trabajo que nunca se hizo — se colara en los ingresos del tablero. Con tablas
 separadas es estructuralmente imposible. El cliente y el vehículo sí se
 guardan en sus tablas normales de inmediato, que es lo que permite que, al
 convertir la cotización en nota, ya estén ahí sin volver a capturarlos.
+
+### Diagnósticos con escáner no maneja dinero ni catálogo
+
+`diagnosticos` / `diagnostico_codigos` capturan el reporte de códigos de
+falla (DTC) que hoy se entrega en papel tras conectar el escáner: mismo
+cliente y vehículo que una nota, folio propio (`DX-001`), pero sin subtotal,
+IVA ni partidas de catálogo — no hay nada que cobrar directamente por leer
+los códigos. `sistema` vive como columna en cada código, no como tabla propia
+con llave foránea, porque agrupar es lo único que hace (no tiene atributos
+propios ni se reutiliza entre diagnósticos); repetir el texto del sistema en
+cada renglón es más simple que una tabla intermedia para algo que solo agrupa
+filas de una tabla en pantalla y en el PDF. Los códigos y el resumen final se
+capturan a mano, igual que en el papel: la app no interpreta el significado
+de un DTC ni sugiere reparaciones, solo estructura lo que el técnico lee.
 
 ### Un CHECK codifica una regla real del negocio
 
@@ -148,13 +163,13 @@ invalidación: el número cambia con cada INSERT, UPDATE o DELETE, así que en
 cuanto se guarda, edita o borra algo, lo cacheado se invalida solo — un PDF
 nunca puede salir con datos viejos, sin necesidad de limpiar la caché a mano.
 
-## Pruebas: 226, en tres suites independientes
+## Pruebas: 268, en tres suites independientes
 
 | Suite | Qué cubre | Cómo |
 |---|---|---|
-| `pruebas_esquema.py` (37) | Que el esquema garantiza lo que promete: los CHECK, los triggers, las claves foráneas | Base temporal, se descarta al terminar |
-| `pruebas_datos.py` (122) | Cada función de `db.py`: alta, edición, borrado en cascada, IVA, cotizaciones, roles de usuario | Base temporal — nunca toca `taller.db` |
-| `pruebas_app.py` (67) | Que cada pantalla renderiza sin excepciones y que el candado de sesión funciona | `AppTest`, el harness oficial de Streamlit — ejecuta la app real sin navegador |
+| `pruebas_esquema.py` (43) | Que el esquema garantiza lo que promete: los CHECK, los triggers, las claves foráneas | Base temporal, se descarta al terminar |
+| `pruebas_datos.py` (136) | Cada función de `db.py`: alta, edición, borrado en cascada, IVA, cotizaciones, roles de usuario | Base temporal — nunca toca `taller.db` |
+| `pruebas_app.py` (89) | Que cada pantalla renderiza sin excepciones, que el candado de sesión funciona, y que interacciones reales (clics, no solo abrir la pantalla) no truenan — incluida la captura completa de un diagnóstico con escáner sobre una base temporal propia | `AppTest`, el harness oficial de Streamlit — ejecuta la app real sin navegador |
 
 Una regla de diseño que costó un bug real aprenderla: **las pruebas de
 pantalla no deben comparar contra números fijos** del histórico original. La
@@ -166,10 +181,12 @@ y base, no una foto fija de un día de agosto.
 
 ## Seguridad
 
-- El servidor está atado a `localhost` (`.streamlit/config.toml`); sin eso,
-  Streamlit escucha en todas las interfaces de red y el taller quedaría
-  accesible desde fuera, con datos de clientes detrás de un login sobre HTTP
-  sin cifrar.
+- El servidor escucha en toda interfaz de red (`address = "0.0.0.0"` en
+  `.streamlit/config.toml`), para entrar desde otros dispositivos en el
+  mismo Wi-Fi del taller. Sigue siendo HTTP sin cifrar, así que esto es
+  seguro solo dentro de esa red de confianza — nunca debe exponerse hacia
+  internet (por ejemplo con port-forwarding en el router), porque el login y
+  los datos de clientes viajarían sin cifrar.
 - Contraseñas con PBKDF2-HMAC-SHA256, 600,000 iteraciones, salt único por
   usuario — nunca en texto plano, ni siquiera para el administrador.
 - El Excel de origen y la base de datos están en `.gitignore`: contienen

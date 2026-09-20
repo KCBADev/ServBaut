@@ -17,6 +17,8 @@ import streamlit as st
 import db
 import styles
 
+CONFIRMAR_BORRADO = "cliente_por_eliminar"  # id pendiente de confirmar
+
 
 def _tabla(clientes: list[dict]) -> pd.DataFrame:
     """Arma la tabla que se muestra en pantalla, con el dinero ya formateado."""
@@ -34,6 +36,13 @@ def _tabla(clientes: list[dict]) -> pd.DataFrame:
 
 
 def _pestana_buscar() -> None:
+    eliminado = st.session_state.pop("cliente_eliminado", None)
+    if eliminado:
+        st.success(f"El cliente {eliminado} fue eliminado.")
+    actualizado = st.session_state.pop("cliente_actualizado", None)
+    if actualizado:
+        st.success(f"Cliente #{actualizado} actualizado.")
+
     busqueda = st.text_input(
         "Buscar", placeholder="Nombre, teléfono o ID…",
         help="No distingue mayúsculas ni acentos: 'martin' encuentra 'Martín'.",
@@ -53,7 +62,7 @@ def _pestana_buscar() -> None:
     st.dataframe(_tabla(clientes), width="stretch", hide_index=True)
 
     st.divider()
-    st.subheader("Editar cliente")
+    st.subheader("Editar o eliminar un cliente")
 
     opciones = {f"#{c['id_cliente']} — {c['nombre']}": c for c in clientes}
     etiqueta = st.selectbox("Cliente a editar", list(opciones),
@@ -63,13 +72,15 @@ def _pestana_buscar() -> None:
 
     cliente = opciones[etiqueta]
 
-    with st.form("editar_cliente"):
+    with st.form(f"editar_cliente_{cliente['id_cliente']}"):
         nombre = st.text_input("Nombre", value=cliente["nombre"])
         telefono = st.text_input(
             "Teléfono", value=cliente["telefono"] or "",
             placeholder="10 dígitos (opcional)",
         )
         guardar = st.form_submit_button("Guardar cambios")
+
+    _eliminar(cliente)
 
     if not guardar:
         return
@@ -88,7 +99,59 @@ def _pestana_buscar() -> None:
     except ValueError as error:
         st.error(str(error))
     else:
-        st.success(f"Cliente #{cliente['id_cliente']} actualizado.")
+        st.session_state["cliente_actualizado"] = cliente["id_cliente"]
+        st.rerun()
+
+
+def _eliminar(cliente: dict) -> None:
+    """
+    Borrar un cliente, con confirmación — mismo patrón que `notas.py`.
+
+    Un cliente con historial NO se borra: `db.eliminar_cliente` lo rechaza con
+    un mensaje que dice qué lo está reteniendo. Esto es solo para fichas
+    creadas por error, que es de donde vienen los duplicados.
+    """
+    pendiente = st.session_state.get(CONFIRMAR_BORRADO)
+    id_cliente = cliente["id_cliente"]
+
+    if pendiente != id_cliente:
+        if st.button("🗑️ Eliminar cliente", key=f"pedir-borrar-{id_cliente}"):
+            st.session_state[CONFIRMAR_BORRADO] = id_cliente
+            st.rerun()
+        return
+
+    dependientes = db.contar_dependientes_cliente(id_cliente)
+    retenido = {k: v for k, v in dependientes.items() if v}
+    if retenido:
+        st.error(
+            f"No se puede eliminar a **{cliente['nombre']}**: todavía tiene "
+            + ", ".join(f"{v} {k}" for k, v in retenido.items())
+            + ". Los registros con historial no se borran; corrige la ficha "
+              "si hay un dato mal."
+        )
+        if st.button("Entendido", key=f"cancelar-borrar-{id_cliente}"):
+            del st.session_state[CONFIRMAR_BORRADO]
+            st.rerun()
+        return
+
+    st.warning(
+        f"Vas a eliminar al cliente **#{id_cliente} — {cliente['nombre']}**. "
+        f"No tiene vehículos ni documentos, así que no se pierde historial, "
+        f"pero esto no se puede deshacer."
+    )
+    izq, der = st.columns(2)
+    if izq.button("Sí, eliminar definitivamente", type="primary",
+                  key=f"confirmar-borrar-{id_cliente}"):
+        try:
+            db.eliminar_cliente(id_cliente)
+        except ValueError as error:
+            st.error(str(error))
+            return
+        del st.session_state[CONFIRMAR_BORRADO]
+        st.session_state["cliente_eliminado"] = cliente["nombre"]
+        st.rerun()
+    if der.button("Cancelar", key=f"cancelar-borrar-{id_cliente}"):
+        del st.session_state[CONFIRMAR_BORRADO]
         st.rerun()
 
 
@@ -116,6 +179,21 @@ def _pestana_alta() -> None:
             db.normalizar_telefono(telefono)
         except ValueError as error:
             st.error(str(error))
+            return
+
+        # Mismo nombre Y mismo teléfono es la misma persona: eso no se
+        # confirma, se impide. La confirmación de abajo queda solo para el
+        # homónimo con otro teléfono, que sí puede ser alguien distinto.
+        repetido = db.buscar_cliente_igual(nombre, telefono)
+        if repetido:
+            st.session_state.pop("cliente_pendiente", None)
+            st.error(
+                f"**{repetido['nombre']}** ya está registrado con el ID "
+                f"#{repetido['id_cliente']}"
+                + (f" y ese mismo teléfono ({repetido['telefono']})."
+                   if repetido["telefono"] else " (sin teléfono).")
+                + " Búscalo en «Buscar y editar» en vez de registrarlo otra vez."
+            )
             return
 
         parecidos = db.buscar_nombres_parecidos(nombre)

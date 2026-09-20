@@ -272,6 +272,62 @@ BEGIN
 END;
 
 -- ---------------------------------------------------------------------------
+-- diagnosticos — reporte de escaneo de códigos de falla (DTC).
+--
+-- No es una nota ni una cotización: no hay conceptos ni importes, solo lo que
+-- el escáner leyó de la computadora del vehículo. El técnico captura el
+-- folio, el cliente y el vehículo igual que en una nota, y llena a mano la
+-- lista de códigos y el resumen final — tal como se hace hoy en papel.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS diagnosticos (
+    id_diagnostico TEXT PRIMARY KEY,          -- 'DX-001'
+    id_cliente     INTEGER NOT NULL REFERENCES clientes(id_cliente),
+    id_vehiculo    INTEGER NOT NULL REFERENCES vehiculos(id_vehiculo),
+    fecha          TEXT NOT NULL,             -- ISO-8601 'YYYY-MM-DD'
+    tecnico        TEXT,                      -- quién atendió el escaneo
+    num_modulos    INTEGER,                   -- módulos electrónicos leídos
+    -- Módulos revisados que no traen códigos en tabla propia (p. ej. "Módulo
+    -- de puerta — sin códigos (OK)"). Texto libre, igual que en el reporte de
+    -- papel.
+    otros_modulos  TEXT,
+    -- Resumen y recomendaciones: se llena a mano después de leer los
+    -- códigos, igual que en el reporte de papel. Sin esto el reporte no dice
+    -- qué hacer con lo que el escáner encontró.
+    resumen        TEXT,
+    creado_en      TEXT NOT NULL DEFAULT (datetime('now')),
+
+    CHECK (id_diagnostico GLOB 'DX-[0-9][0-9][0-9]*'),
+    CHECK (fecha GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+    CHECK (num_modulos IS NULL OR num_modulos >= 0)
+);
+
+CREATE TABLE IF NOT EXISTS diagnostico_codigos (
+    id_item        INTEGER PRIMARY KEY AUTOINCREMENT,
+    id_diagnostico TEXT NOT NULL REFERENCES diagnosticos(id_diagnostico)
+                       ON DELETE CASCADE ON UPDATE CASCADE,
+    linea          INTEGER NOT NULL CHECK (linea > 0),
+    -- Sistema/módulo al que pertenece el código (p. ej. "Motor y sistema de
+    -- propulsión", "Frenos ABS (antibloqueo)"). Agrupa los renglones en la
+    -- tabla impresa, igual que en el reporte de papel.
+    sistema        TEXT NOT NULL,
+    -- Nota corta del sistema (p. ej. "esto enciende el testigo de Check
+    -- Engine"). Se repite en cada renglón del mismo sistema por simplicidad
+    -- del formulario; solo se imprime una vez por grupo.
+    sistema_nota   TEXT,
+    codigo         TEXT NOT NULL,             -- 'P0135'
+    descripcion    TEXT NOT NULL,             -- descripción del escáner
+    significado    TEXT NOT NULL,             -- qué significa, en español llano
+    gravedad       TEXT NOT NULL DEFAULT 'MEDIA'
+                   CHECK (gravedad IN ('ALTA', 'MEDIA', 'BAJA', 'INFO')),
+
+    UNIQUE (id_diagnostico, linea),
+    CHECK (length(trim(sistema)) > 0),
+    CHECK (length(trim(codigo)) > 0),
+    CHECK (length(trim(descripcion)) > 0),
+    CHECK (length(trim(significado)) > 0)
+);
+
+-- ---------------------------------------------------------------------------
 -- taller — datos del negocio, una sola fila.
 --
 -- Los usa la nota impresa. Antes el nombre estaba escrito en el código y no
@@ -533,3 +589,42 @@ CREATE INDEX IF NOT EXISTS idx_cotizaciones_vehiculo ON cotizaciones(id_vehiculo
 CREATE INDEX IF NOT EXISTS idx_cotizaciones_estado   ON cotizaciones(estado);
 CREATE INDEX IF NOT EXISTS idx_cotizacion_partidas_cot
     ON cotizacion_partidas(id_cotizacion);
+CREATE INDEX IF NOT EXISTS idx_diagnosticos_cliente  ON diagnosticos(id_cliente);
+CREATE INDEX IF NOT EXISTS idx_diagnosticos_vehiculo ON diagnosticos(id_vehiculo);
+CREATE INDEX IF NOT EXISTS idx_diagnostico_codigos_diag
+    ON diagnostico_codigos(id_diagnostico);
+
+-- ---------------------------------------------------------------------------
+-- Candados contra duplicados.
+--
+-- La app ya los detecta y los explica antes de insertar (db.crear_cliente /
+-- db.crear_vehiculo), pero eso vive en Python: estos índices son la garantía
+-- de la base, y valen también para un script o una carga masiva.
+--
+-- Son índices de EXPRESIÓN y PARCIALES a propósito. Un UNIQUE normal sobre
+-- las columnas no habría servido: en SQLite NULL ≠ NULL dentro de un UNIQUE,
+-- así que seis vehículos del mismo cliente sin placa —el caso real que hubo
+-- que limpiar a mano— habrían pasado los seis.
+-- ---------------------------------------------------------------------------
+
+-- Una placa identifica un carro en todo el padrón, sin importar de quién sea:
+-- si aparece dos veces es el mismo coche, y un cambio de dueño se arregla
+-- editando la ficha, no registrándolo otra vez.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_vehiculos_placa_unica
+    ON vehiculos (upper(trim(placas)))
+ WHERE placas IS NOT NULL AND trim(placas) <> '';
+
+-- Sin placa no hay con qué distinguir dos carros iguales del mismo dueño. La
+-- salida para dos carros de verdad idénticos es capturar su placa, que es
+-- justo lo que los saca de este índice.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_vehiculos_sin_placa_unico
+    ON vehiculos (id_cliente, upper(trim(marca)), ifnull(upper(trim(modelo)), ''),
+                  ifnull(anio, 0), ifnull(upper(trim(color)), ''))
+ WHERE placas IS NULL OR trim(placas) = '';
+
+-- Mismo nombre y mismo teléfono es la misma persona. Ojo: SQL no pliega
+-- acentos, así que «Martin» y «Martín» los separa este índice pero los une
+-- la app (`db.buscar_cliente_igual` usa `plegar`). La app atrapa más casos;
+-- el índice es la red de seguridad.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_clientes_unico
+    ON clientes (lower(trim(nombre)), ifnull(telefono, ''));

@@ -7,8 +7,9 @@ propio filtro.
 Decisiones de visualización:
   * Los KPIs van como cifras, no como gráficas de una barra.
   * Las magnitudes por categoría nominal (categorías, marcas, clientes) usan
-    barras horizontales de UN color: pintar cada barra según su valor
-    duplicaría en el color lo que la longitud ya dice.
+    barras horizontales: la de mayor valor se resalta en un verde más oscuro
+    y la de menor valor en rojo, para que el extremo salte a la vista sin
+    tener que leer el eje; el resto se queda en el menta de siempre.
   * El mix Producto/Servicio es parte-de-un-todo, así que va apilado, con
     leyenda y etiquetas directas — nunca un pastel de dos rebanadas.
   * Cada gráfica trae su tabla equivalente para que ningún valor dependa
@@ -31,6 +32,10 @@ import styles
 # Detalle de contraste en styles.py, junto a SERIE_1/SERIE_2.
 SERIE_1 = styles.SERIE_1
 SERIE_2 = styles.SERIE_2
+# El extremo de una magnitud en las barras horizontales: la mayor en azul, la
+# menor reutilizando el rojo de alerta de siempre (ver styles.py).
+COLOR_MAYOR = styles.DESTACADO
+COLOR_MENOR = styles.ALERTA
 SUPERFICIE = styles.FONDO
 REJILLA = styles.REJILLA
 EJE = styles.EJE
@@ -72,10 +77,24 @@ def _afinar(grafica: alt.Chart) -> alt.Chart:
 def _barras_horizontales(datos: pd.DataFrame, campo_categoria: str,
                          campo_valor: str, titulo_valor: str,
                          formato: str = "$,.0f") -> alt.Chart:
-    """Barras horizontales de un solo color, ordenadas de mayor a menor."""
+    """
+    Barras horizontales, ordenadas de mayor a menor.
+
+    La de mayor valor se resalta en un verde más oscuro y la de menor valor
+    en rojo — el resto se queda en el menta de siempre. Con más de una barra
+    y todas empatadas, el verde oscuro manda sobre el rojo: ver cuál gana no
+    dice nada útil cuando todas valen lo mismo, y remarcar la primera como
+    "la mejor" es menos confuso que remarcarla como "la peor".
+    """
+    datos = datos.copy()
+    datos["Color"] = SERIE_1
+    if len(datos) > 1:
+        datos.loc[datos[campo_valor].idxmin(), "Color"] = COLOR_MENOR
+        datos.loc[datos[campo_valor].idxmax(), "Color"] = COLOR_MAYOR
+
     return _afinar(
         alt.Chart(datos)
-        .mark_bar(color=SERIE_1, cornerRadiusEnd=4, height=16)
+        .mark_bar(cornerRadiusEnd=4, height=16)
         .encode(
             x=alt.X(f"{campo_valor}:Q", title=titulo_valor,
                     axis=alt.Axis(format=formato)),
@@ -85,6 +104,10 @@ def _barras_horizontales(datos: pd.DataFrame, campo_categoria: str,
             y=alt.Y(f"{campo_categoria}:N", title=None,
                     sort=alt.SortField(campo_valor, order="descending"),
                     axis=alt.Axis(labelOverlap=False, labelLimit=170)),
+            # `scale=None`: el color ya viene resuelto por fila en "Color";
+            # sin esto Altair lo trataría como una categoría más que colorear
+            # en vez de usar el valor tal cual.
+            color=alt.Color("Color:N", scale=None, legend=None),
             tooltip=[
                 alt.Tooltip(f"{campo_categoria}:N", title="Concepto"),
                 alt.Tooltip(f"{campo_valor}:Q", title=titulo_valor, format=formato),

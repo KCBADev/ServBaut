@@ -198,19 +198,24 @@ def _imprimir(ruta_html: Path) -> bytes:
             navegador.close()
 
 
-def _a_pdf(documento: str) -> bytes:
+def _a_pdf(documento: str, carpeta: Path | None = None) -> bytes:
     """
     Renderiza el HTML ya relleno.
 
     El archivo temporal se escribe DENTRO de la carpeta de la plantilla para
-    que las rutas relativas sigan apuntando a donde deben.
+    que las rutas relativas sigan apuntando a donde deben. Por omisión es la
+    carpeta de ESTE módulo (`orden-trabajo-plantilla.html`); otros módulos
+    que rellenen una plantilla distinta (como `diagnostico_pdf.py`) deben
+    pasar la suya en `carpeta` — si no, las rutas relativas de su plantilla
+    (tipografías, logo) resolverían contra la carpeta equivocada en cuanto
+    dejaran de coincidir por casualidad.
 
     El render corre en un hilo aparte porque la API síncrona de Playwright se
     niega a funcionar si en el hilo actual hay un bucle de asyncio corriendo, y
     Streamlit ejecuta el script en un hilo propio donde eso puede pasar.
     """
     temporal = tempfile.NamedTemporaryFile(
-        mode="w", suffix=".html", dir=RUTA_PLANTILLA.parent,
+        mode="w", suffix=".html", dir=carpeta or RUTA_PLANTILLA.parent,
         delete=False, encoding="utf-8")
     try:
         temporal.write(documento)

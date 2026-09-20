@@ -297,6 +297,22 @@ def main() -> None:
         except ValueError:
             comprobar("Impide pagar más que el total", True)
 
+        print("\n--- Entregar marca la nota como pagada, sola ---")
+        # `editable` sigue con 20000 de 60000 pagado (arriba). El taller no
+        # entrega un carro sin cobrarlo, así que pasar a "Entregado" cierra
+        # el pago sin que haga falta el paso manual de "Registrar pago".
+        db.cambiar_estado(editable, "Entregado")
+        nota = db.obtener_nota(editable)
+        comprobar(f"Al entregar, el pago se completa solo "
+                  f"({db.formato_pesos(nota['pagado_centavos'])})",
+                  nota["pagado_centavos"] == nota["total_centavos"])
+        comprobar("Y el saldo queda en cero", nota["saldo_centavos"] == 0)
+
+        db.cambiar_estado(editable, "En proceso")
+        comprobar("Mover la nota a otro estado NO deshace el pago ya cobrado",
+                  db.obtener_nota(editable)["pagado_centavos"]
+                  == nota["total_centavos"])
+
         print("\n--- Historial del vehículo ---")
         ficha = db.obtener_vehiculo(veh1)
         comprobar(f"Junta las notas del carro ({len(ficha['historial'])})",

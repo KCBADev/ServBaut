@@ -13,7 +13,11 @@ Uso:
 
 from __future__ import annotations
 
+import re
+import shutil
 import sys
+import tempfile
+from datetime import date
 from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
@@ -93,6 +97,139 @@ def abrir_pagina(modulo: str, rol: str = "admin") -> AppTest:
     return app
 
 
+def _prueba_diagnosticos_interaccion() -> None:
+    """
+    Ejercita de verdad el clic de «Agregar código» en Diagnósticos con
+    escáner — la interacción exacta que causó un bug real
+    (`StreamlitWidgetAlreadyInstantiatedError`) el día que se agregó la
+    pantalla, y que ni la lectura de código ni el resto de estas pruebas
+    (que solo abren la pantalla en frío) habría atrapado.
+
+    Corre sobre una base TEMPORAL, nunca sobre `taller.db`: una prueba que
+    guarda un diagnóstico de verdad tiene que poder repetirse sin ir
+    dejando folios de prueba en la base real del taller cada vez que se
+    corre. `db.RUTA_DB` se redirige mientras dura esta función y se
+    restaura siempre, para que el resto de la suite (que sí corre contra la
+    base real) no quede afectado.
+    """
+    print("\n--- Diagnósticos: flujo completo (base temporal aislada) ---")
+    original_ruta = db.RUTA_DB
+    # En D:, no en el temporal del sistema (C:): el mismo motivo por el que
+    # `db.RUTA_DB` ya vive en D: — este disco C: anda muy justo de espacio y
+    # una base SQLite ahí puede fallar con "database or disk is full" a
+    # medio crear, aunque D: tenga cientos de GB libres.
+    carpeta = tempfile.mkdtemp(prefix="pruebas_diagnosticos_",
+                               dir=original_ruta.parent)
+    db.RUTA_DB = Path(carpeta) / "prueba.db"
+    try:
+        db.inicializar_esquema()
+        db.sembrar_marcas()
+        with db.transaccion() as c:
+            c.execute("INSERT INTO categorias (nombre) VALUES ('Motor')")
+            c.execute("INSERT INTO acciones (nombre) VALUES ('Reemplazo')")
+        id_cliente = db.crear_cliente("Cliente de prueba", "3312345678")
+        db.crear_vehiculo(id_cliente, "Jeep", "Patriot", 2020, "Negro")
+
+        app = abrir_pagina("diagnosticos")
+        comprobar("Diagnósticos abre sin excepciones sobre la base aislada",
+                  not app.exception, sin_excepciones(app))
+
+        selector_cliente = next(
+            sb for sb in app.selectbox if (sb.label or "").startswith("Cliente"))
+        etiqueta = next(o for o in selector_cliente.options if "prueba" in o.lower())
+        app = selector_cliente.set_value(etiqueta).run()
+        comprobar("Elegir el cliente no truena",
+                  not app.exception, sin_excepciones(app))
+
+        selector_vehiculo = next(
+            sb for sb in app.selectbox if (sb.label or "").startswith("Vehículo"))
+        app = selector_vehiculo.set_value(list(selector_vehiculo.options)[0]).run()
+        comprobar("Elegir el vehículo no truena",
+                  not app.exception, sin_excepciones(app))
+
+        app.text_input(key="diag_sistema_nuevo_0").set_value("Motor")
+        app.text_input(key="diag_codigo_0").set_value("P0135")
+        app.text_input(key="diag_descripcion_0").set_value("Descripción de prueba")
+        app.text_area(key="diag_significado_0").set_value("Significado de prueba")
+        app = app.button(key="diag_agregar_codigo_0").click().run()
+        comprobar("Agregar el primer código no truena (el bug real de hoy)",
+                  not app.exception, sin_excepciones(app))
+
+        selectores_sistema = [
+            sb for sb in app.selectbox if (sb.label or "").startswith("Sistema")]
+        comprobar("El sistema queda preseleccionado para el siguiente código",
+                  bool(selectores_sistema) and selectores_sistema[0].value == "Motor",
+                  str([sb.value for sb in selectores_sistema]))
+
+        app.text_input(key="diag_codigo_1").set_value("P0401")
+        app.text_input(key="diag_descripcion_1").set_value("Segunda descripción")
+        app.text_area(key="diag_significado_1").set_value("Segundo significado")
+        app = app.button(key="diag_agregar_codigo_1").click().run()
+        comprobar("Agregar un segundo código del mismo sistema no truena",
+                  not app.exception, sin_excepciones(app))
+
+        quitar = next(
+            sb for sb in app.selectbox if (sb.label or "") == "Quitar renglón")
+        app = quitar.set_value(1).run()
+        boton_quitar = next(b for b in app.button if b.label == "Quitar")
+        app = boton_quitar.click().run()
+        comprobar("Quitar un renglón no truena", not app.exception, sin_excepciones(app))
+
+        app.text_area(key="diag_resumen").set_value("Resumen de prueba.")
+        app.run()
+        boton_guardar = next(b for b in app.button if b.label == "Guardar diagnóstico")
+        comprobar("El botón de guardar se habilita con los datos completos",
+                  not boton_guardar.disabled)
+        app = boton_guardar.click().run()
+        comprobar("Guardar el diagnóstico no truena", not app.exception, sin_excepciones(app))
+
+        exito = [s.value for s in app.success]
+        comprobar("Muestra el mensaje de éxito con el folio",
+                  bool(exito) and "guardado" in exito[0].lower(), str(exito))
+
+        # El PDF se pide en dos pasos: primero «Preparar», y solo entonces
+        # aparece la descarga. Así abrir un documento guardado no levanta un
+        # Chromium en cada redibujado (ver `descargas.boton_pdf`).
+        preparar = next((b for b in app.button if "Preparar" in b.label), None)
+        comprobar("Ofrece preparar el reporte en PDF (sin generarlo de entrada)",
+                  preparar is not None, str([b.label for b in app.button]))
+        comprobar("Y todavía no hay botón de descarga",
+                  not app.download_button)
+        if preparar is not None:
+            app = preparar.click().run()
+            etiquetas_pdf = [b.label for b in app.download_button]
+            comprobar("Tras prepararlo, ofrece descargar el reporte en PDF",
+                      any("PDF" in e for e in etiquetas_pdf), str(etiquetas_pdf))
+
+        if exito:
+            folio = re.search(r"DX-\d+", exito[0]).group(0)
+            import diagnostico_pdf
+            pdf = diagnostico_pdf.generar(folio)
+            comprobar(f"El PDF se genera de verdad ({len(pdf)} bytes)",
+                      len(pdf) > 10_000)
+
+        boton_otro = next(b for b in app.button if b.label == "Capturar otro diagnóstico")
+        app = boton_otro.click().run()
+        comprobar("«Capturar otro diagnóstico» no truena",
+                  not app.exception, sin_excepciones(app))
+
+        resumen_vacio = next(
+            (t for t in app.text_area if (t.label or "").startswith("Resumen")), None)
+        comprobar("El resumen queda en blanco para el siguiente diagnóstico "
+                  "(no el del anterior)",
+                  resumen_vacio is not None and not resumen_vacio.value,
+                  repr(resumen_vacio.value if resumen_vacio else None))
+
+        fecha_widget = next(
+            (d for d in app.date_input if (d.label or "").startswith("Fecha")), None)
+        comprobar("La fecha vuelve a hoy",
+                  fecha_widget is not None and fecha_widget.value == date.today(),
+                  str(fecha_widget.value if fecha_widget else None))
+    finally:
+        db.RUTA_DB = original_ruta
+        shutil.rmtree(carpeta, ignore_errors=True)
+
+
 def main() -> None:
     if not db.RUTA_DB.exists():
         print("No existe taller.db. Corre primero cargar_datos.py")
@@ -144,6 +281,7 @@ def main() -> None:
         ("cotizaciones", "Cotizaciones"),
         ("crear_nota", "Crear nota"),
         ("notas", "Notas de servicio"),
+        ("diagnosticos", "Diagnósticos con escáner"),
         ("vehiculos", "Vehículos"),
         ("clientes", "Clientes"),
         ("catalogo", "Catálogo"),
@@ -222,6 +360,16 @@ def main() -> None:
     comprobar("Trae las pestañas de captura y consulta",
               {"Nueva cotización", "Consultar"} <= {t.label for t in app.tabs},
               str([t.label for t in app.tabs]))
+
+    # Reporte de escáner: mismo cliente/vehículo que una nota, pero sin
+    # dinero — la lista de códigos y el resumen se llenan a mano.
+    app = abrir_pagina("diagnosticos")
+    visible = texto_de(app)
+    comprobar("Diagnósticos trae las pestañas de captura y consulta",
+              {"Nuevo diagnóstico", "Consultar"} <= {t.label for t in app.tabs},
+              str([t.label for t in app.tabs]))
+    comprobar("Y no le pide dinero al cliente (no es una nota ni cotización)",
+              "IVA" not in visible and "Subtotal" not in visible, visible[:300])
 
     app = abrir_pagina("configuracion")
     comprobar("Configuración deja entrar a un administrador",
@@ -324,11 +472,23 @@ def main() -> None:
         comprobar(f"Muestra el estado ({metricas.get('Estado')})",
                   metricas.get("Estado") in db.ESTADOS_COTIZACION)
 
-        etiquetas_pdf = [b.label for b in app.download_button]
-        comprobar("Ofrece descargar la cotización en PDF",
-                  any("Descargar cotización en PDF" in e
-                      for e in etiquetas_pdf),
-                  str(etiquetas_pdf))
+        # Abrir el detalle NO debe armar el PDF: solo ofrecer prepararlo. Es
+        # lo que evita esperar ~2 s (un Chromium) cada vez que se consulta
+        # una cotización guardada.
+        comprobar("Abrir el detalle no genera el PDF de entrada",
+                  not app.download_button)
+        preparar = next((b for b in app.button if "Preparar" in b.label), None)
+        comprobar("Ofrece preparar la cotización en PDF",
+                  preparar is not None, str([b.label for b in app.button]))
+        if preparar is not None:
+            app = preparar.click().run()
+            etiquetas_pdf = [b.label for b in app.download_button]
+            comprobar("Tras prepararla, ofrece descargar la cotización en PDF",
+                      any("Descargar cotización en PDF" in e
+                          for e in etiquetas_pdf),
+                      str(etiquetas_pdf))
+
+    _prueba_diagnosticos_interaccion()
 
     print("\n--- Cerrar sesión ---")
     app = abrir()

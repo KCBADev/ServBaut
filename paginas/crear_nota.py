@@ -29,7 +29,7 @@ import streamlit as st
 import db
 import nota_pdf
 import styles
-from paginas import descargas
+from paginas import descargas, notas
 from paginas.cliente_vehiculo import bloque_cliente, bloque_vehiculo
 from paginas.notas import formulario_partida
 
@@ -70,9 +70,16 @@ def _bloque_nota_vehiculo(id_cliente: int | None) -> tuple:
 def _bloque_partidas() -> int:
     styles.seccion("3 · Servicios y productos", "hoja TSA · ID_SA va 1, 2, 3…")
 
-    formulario = formulario_partida("crear")
+    # `formulario_partida` arma las llaves de sus widgets con la `clave` que
+    # se le pasa; una `clave` fija dejaba el producto/cantidad/precio del
+    # renglón anterior puestos al capturar el siguiente. Con un número de
+    # versión que sube en cada «Agregar», cada renglón usa widgets nuevos
+    # que nunca existieron, así que siempre arrancan en blanco.
+    version = st.session_state.get("crear_partida_version", 0)
+    formulario = formulario_partida(f"crear-{version}")
     if formulario:
         _borrador().append(formulario)
+        st.session_state["crear_partida_version"] = version + 1
         st.rerun()
 
     partidas = _borrador()
@@ -102,11 +109,15 @@ def _bloque_partidas() -> int:
     )
 
     col1, col2 = st.columns([2, 1])
+    # La llave incluye `len(partidas)`: al quitar un renglón la lista cambia
+    # de tamaño y el selector arranca sin selección heredada, en vez de
+    # quedar apuntando —tras la renumeración— a un renglón distinto del que
+    # se acababa de quitar.
     quitar = col1.selectbox("Quitar renglón", range(1, len(partidas) + 1),
                             index=None, placeholder="Número de ID_SA…",
-                            key="crear_quitar")
+                            key=f"crear_quitar_{len(partidas)}")
     col2.write("")
-    if quitar and col2.button("Quitar", key="crear_btn_quitar"):
+    if quitar and col2.button("Quitar", key=f"crear_btn_quitar_{len(partidas)}"):
         partidas.pop(quitar - 1)
         st.rerun()
 
@@ -156,29 +167,37 @@ def _nota_guardada(folio: str) -> None:
     st.success(f"Nota **{folio}** guardada por "
                f"{db.formato_pesos(nota['total_centavos'])}.")
 
-    # La orden se arma solo cuando se pide. Construirla de entrada levantaba un
-    # Chromium (~2 s) en CADA reejecución de esta pantalla, se descargara o no,
-    # y esta es justo la pantalla que se repite en cada captura.
-    listo = f"pdf_listo_{folio}"
-    if st.session_state.get(listo):
-        st.download_button(
-            "📄 Descargar orden de trabajo",
-            data=descargas.pdf_nota(folio),
-            file_name=nota_pdf.nombre_archivo(folio),
-            mime="application/pdf", key="guardada_pdf",
-            help="El documento que le entregas o le mandas al cliente.")
-    elif st.button("📄 Preparar orden de trabajo (PDF)",
-                   key="guardada_pedir_pdf"):
-        st.session_state[listo] = True
-        st.rerun()
+    # La orden se arma solo cuando se pide: construirla de entrada levantaba un
+    # Chromium (~2 s) en CADA reejecución de esta pantalla, se descargara o no.
+    # El mecanismo vive en `descargas.boton_pdf`, compartido con las demás
+    # pantallas que exportan documentos.
+    descargas.boton_pdf(
+        folio,
+        generar=lambda: descargas.pdf_nota(folio),
+        nombre_archivo=nota_pdf.nombre_archivo(folio),
+        etiqueta_descarga="📄 Descargar orden de trabajo",
+        etiqueta_preparar="📄 Preparar orden de trabajo (PDF)",
+        ayuda="El documento que le entregas o le mandas al cliente.")
 
     st.caption("Los exportes de la base completa (CSV, Excel, SQL y el "
                "formato de tu hoja de siempre) están en "
                "**Configuración**.")
 
+    # Atajo a la nota recién guardada: no se duplica el panel de edición
+    # aquí, se manda a «Notas de servicio» —que ya lo tiene completo— con
+    # el folio preseleccionado, vía query param.
+    col1, col2 = st.columns(2)
+    if col1.button("✏️ Editar esta nota", key="guardada_editar"):
+        st.switch_page(st.Page(notas.mostrar, url_path="notas"),
+                       query_params={"folio": folio})
+    if col2.button("🗑️ Eliminar esta nota", key="guardada_eliminar"):
+        st.switch_page(st.Page(notas.mostrar, url_path="notas"),
+                       query_params={"folio": folio})
+
     if st.button("Capturar otra nota", type="primary", key="guardada_otra"):
         for clave in (GUARDADA, f"{PREFIJO}_cliente_creado",
-                     f"{PREFIJO}_vehiculo_creado", BORRADOR, listo):
+                     f"{PREFIJO}_vehiculo_creado", BORRADOR,
+                     f"pdf_listo_{folio}"):
             st.session_state.pop(clave, None)
         st.rerun()
 

@@ -68,13 +68,22 @@ SERIE_3 = ACENTO_PROFUNDO    # relleno de área, fondo de barra
 REJILLA = "#1D242B"          # líneas de rejilla, apenas visibles
 EJE = TEXTO_TENUE            # ejes y etiquetas: mismo peso que el texto tenue
 
-# Rampa del menta al esmeralda para repartir un todo en varias partes (el
-# pastel de categorías). Es una sola familia de color, ordenada de mayor a
-# menor: dos rebanadas contiguas solo se separan 1.4:1, así que el color NO
-# puede ser el único canal — cada rebanada va rotulada con su nombre y su
-# porcentaje, y debajo va la tabla. El gris queda para el cajón de «Otras»,
-# que no es una categoría más sino el resto.
-RAMPA = ["#18D59C", "#17BA89", "#169F76", "#158463", "#146950"]
+# Para destacar el extremo de una magnitud (las barras del dashboard: la
+# categoría, marca o cliente con el valor más alto). Un verde MÁS OSCURO que
+# el menta de las demás barras, no otro color de familia distinta — se lee
+# como "la misma serie, pero la que gana", en vez de una categoría aparte.
+DESTACADO = "#00632B"        # verde esmeralda oscuro: la barra de mayor valor
+# La de menor valor reutiliza ALERTA (rojo coral): ya es el color de
+# "atención" en toda la app, no hace falta uno nuevo para lo mismo.
+
+# Rampa para repartir un todo en varias partes por categoría (el pastel de
+# ingresos): verdes elegidos a propósito, con suficiente variación de tono y
+# saturación entre sí (no solo de claridad) para que cada rebanada se
+# distinga de sus vecinas a simple vista, de la más oscura a la más clara.
+# El gris queda para el cajón de «Otras», que no es una categoría más sino
+# el resto; y aun con colores distintos cada rebanada sigue rotulada con su
+# nombre y su porcentaje, y debajo va la tabla.
+RAMPA = ["#00632B", "#42AD72", "#44AB00", "#5A8B00", "#7AE582"]
 RAMPA_RESTO = TEXTO_APAGADO
 
 # Tipografía de los títulos. Se carga de Google Fonts; si la máquina está sin

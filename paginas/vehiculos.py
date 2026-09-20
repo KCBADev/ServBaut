@@ -15,6 +15,8 @@ import streamlit as st
 import db
 import styles
 
+CONFIRMAR_BORRADO = "vehiculo_por_eliminar"  # id pendiente de confirmar
+
 
 def etiqueta(v: dict) -> str:
     """El carro se identifica por sí mismo; el dueño solo desempata."""
@@ -113,6 +115,13 @@ def _ficha(id_vehiculo: int) -> None:
 
 
 def _pestana_consultar() -> None:
+    eliminado = st.session_state.pop("vehiculo_eliminado", None)
+    if eliminado:
+        st.success(f"El vehículo {eliminado} fue eliminado.")
+    actualizado = st.session_state.pop("vehiculo_actualizado", None)
+    if actualizado:
+        st.success(f"Ficha del vehículo #{actualizado} actualizada.")
+
     col1, col2 = st.columns([3, 1.2])
     busqueda = col1.text_input(
         "Buscar", placeholder="Marca, tipo, placas, año o dueño…")
@@ -200,8 +209,62 @@ def _editar(id_vehiculo: int) -> None:
             except Exception as error:
                 st.error(f"No se pudo guardar: {error}")
             else:
-                st.success("Ficha actualizada.")
+                st.session_state["vehiculo_actualizado"] = id_vehiculo
                 st.rerun()
+
+    _eliminar(v)
+
+
+def _eliminar(v: dict) -> None:
+    """
+    Borrar un vehículo, con confirmación — mismo patrón que `notas.py`.
+
+    Un carro con historial no se borra: se perdería de qué carro era cada
+    nota. Para ese caso está el checkbox «Activo» de arriba, que lo saca de
+    las listas de captura sin tocar lo ya facturado.
+    """
+    id_vehiculo = v["id_vehiculo"]
+    pendiente = st.session_state.get(CONFIRMAR_BORRADO)
+
+    if pendiente != id_vehiculo:
+        if st.button("🗑️ Eliminar vehículo", key=f"pedir-borrar-{id_vehiculo}"):
+            st.session_state[CONFIRMAR_BORRADO] = id_vehiculo
+            st.rerun()
+        return
+
+    dependientes = db.contar_dependientes_vehiculo(id_vehiculo)
+    retenido = {k: n for k, n in dependientes.items() if n}
+    if retenido:
+        st.error(
+            f"No se puede eliminar este vehículo: tiene "
+            + ", ".join(f"{n} {k}" for k, n in retenido.items())
+            + ". Si ya no viene al taller, desmarca **Activo** arriba: deja "
+              "de aparecer al capturar, y su historial se conserva."
+        )
+        if st.button("Entendido", key=f"cancelar-borrar-{id_vehiculo}"):
+            del st.session_state[CONFIRMAR_BORRADO]
+            st.rerun()
+        return
+
+    st.warning(
+        f"Vas a eliminar el vehículo **#{id_vehiculo} — "
+        f"{db.descripcion_vehiculo(v)}**. No tiene documentos asociados, así "
+        f"que no se pierde historial, pero esto no se puede deshacer."
+    )
+    izq, der = st.columns(2)
+    if izq.button("Sí, eliminar definitivamente", type="primary",
+                  key=f"confirmar-borrar-{id_vehiculo}"):
+        try:
+            db.eliminar_vehiculo(id_vehiculo)
+        except ValueError as error:
+            st.error(str(error))
+            return
+        del st.session_state[CONFIRMAR_BORRADO]
+        st.session_state["vehiculo_eliminado"] = db.descripcion_vehiculo(v)
+        st.rerun()
+    if der.button("Cancelar", key=f"cancelar-borrar-{id_vehiculo}"):
+        del st.session_state[CONFIRMAR_BORRADO]
+        st.rerun()
 
 
 def mostrar() -> None:

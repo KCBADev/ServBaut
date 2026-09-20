@@ -394,11 +394,51 @@ def buscar_nombres_parecidos(nombre: str, excluir_id: int | None = None) -> list
     ]
 
 
+def buscar_cliente_igual(nombre: str, telefono: str | None,
+                         excluir_id: int | None = None) -> dict | None:
+    """
+    Busca el cliente que ya ES esta persona, no uno que se le parezca.
+
+    La diferencia con `buscar_nombres_parecidos` es el teléfono: dos personas
+    pueden llamarse igual —por eso aquel solo advierte—, pero el mismo nombre
+    CON el mismo teléfono es la misma persona, y darla de alta otra vez parte
+    su historial en dos. Eso es lo que pasó de verdad con un cliente que quedó
+    registrado dos veces con dos minutos de diferencia.
+
+    Dos clientes sin teléfono y con el mismo nombre también cuentan como el
+    mismo: sin teléfono no hay con qué distinguirlos, y la salida es capturar
+    el teléfono de uno de los dos.
+    """
+    objetivo = plegar(nombre)
+    if not objetivo:
+        return None
+    buscado = normalizar_telefono(telefono)
+    for fila in buscar_nombres_parecidos(nombre, excluir_id=excluir_id):
+        if fila["telefono"] == buscado:
+            return fila
+    return None
+
+
 def crear_cliente(nombre: str, telefono: str | None) -> int:
-    """Da de alta un cliente. Devuelve su id (el consecutivo de llegada)."""
+    """
+    Da de alta un cliente. Devuelve su id (el consecutivo de llegada).
+
+    Rechaza el duplicado exacto (mismo nombre y mismo teléfono). La pantalla
+    lo comprueba antes para poder ofrecer el registro que ya existe, pero la
+    comprobación se repite aquí: es el único punto por el que pasan todas las
+    altas, vengan de la pantalla que vengan.
+    """
     nombre = nombre.strip()
     if not nombre:
         raise ValueError("El nombre del cliente es obligatorio.")
+    repetido = buscar_cliente_igual(nombre, telefono)
+    if repetido:
+        raise ValueError(
+            f"«{nombre}» ya está registrado como el cliente "
+            f"#{repetido['id_cliente']}"
+            + (f" con el teléfono {repetido['telefono']}."
+               if repetido["telefono"] else " (sin teléfono).")
+        )
     with transaccion() as c:
         cursor = c.execute(
             "INSERT INTO clientes (nombre, telefono) VALUES (?, ?)",
@@ -411,11 +451,76 @@ def actualizar_cliente(id_cliente: int, nombre: str, telefono: str | None) -> No
     nombre = nombre.strip()
     if not nombre:
         raise ValueError("El nombre del cliente es obligatorio.")
+
+    # Corregir una ficha no puede convertirla en el duplicado de otra.
+    repetido = buscar_cliente_igual(nombre, telefono, excluir_id=id_cliente)
+    if repetido:
+        raise ValueError(
+            f"Esos datos ya son los del cliente #{repetido['id_cliente']} "
+            f"({repetido['nombre']}). Si son la misma persona, usa esa ficha."
+        )
+
     with transaccion() as c:
         c.execute(
             "UPDATE clientes SET nombre = ?, telefono = ? WHERE id_cliente = ?",
             (nombre, normalizar_telefono(telefono), id_cliente),
         )
+
+
+# Singular y plural de cada tipo de registro, para que el mensaje que ve el
+# usuario diga «1 nota» y no «1 notas».
+_NOMBRES_DEPENDIENTES = {
+    "notas": ("nota", "notas"),
+    "cotizaciones": ("cotización", "cotizaciones"),
+    "diagnosticos": ("diagnóstico", "diagnósticos"),
+    "vehiculos": ("vehículo", "vehículos"),
+}
+
+
+def _detalle_dependientes(dependientes: dict[str, int]) -> str:
+    """«1 nota, 2 vehículos» a partir del conteo por tipo; vacío si no hay."""
+    partes = [
+        f"{cuantos} {_NOMBRES_DEPENDIENTES[tipo][0 if cuantos == 1 else 1]}"
+        for tipo, cuantos in dependientes.items() if cuantos
+    ]
+    return ", ".join(partes)
+
+
+def contar_dependientes_cliente(id_cliente: int) -> dict[str, int]:
+    """Cuántos registros cuelgan de un cliente, por tipo."""
+    with conectar() as c:
+        fila = c.execute(
+            """
+            SELECT (SELECT COUNT(*) FROM notas WHERE id_cliente = :id) AS notas,
+                   (SELECT COUNT(*) FROM cotizaciones WHERE id_cliente = :id)
+                       AS cotizaciones,
+                   (SELECT COUNT(*) FROM diagnosticos WHERE id_cliente = :id)
+                       AS diagnosticos,
+                   (SELECT COUNT(*) FROM vehiculos WHERE id_cliente = :id)
+                       AS vehiculos
+            """,
+            {"id": id_cliente},
+        ).fetchone()
+    return {k: fila[k] for k in fila.keys()}
+
+
+def eliminar_cliente(id_cliente: int) -> None:
+    """
+    Borra un cliente que no tenga NADA colgando.
+
+    Se comprueba antes en vez de dejar que estalle la llave foránea: ninguna
+    de las que apuntan a `clientes` tiene ON DELETE CASCADE —a propósito, el
+    historial de facturación no se borra de rebote—, así que sin esto el
+    usuario solo vería un «FOREIGN KEY constraint failed» que no explica nada.
+    """
+    detalle = _detalle_dependientes(contar_dependientes_cliente(id_cliente))
+    if detalle:
+        raise ValueError(
+            f"No se puede eliminar: el cliente todavía tiene {detalle}. "
+            f"Bórralos primero, o corrige la ficha en vez de eliminarla."
+        )
+    with transaccion() as c:
+        c.execute("DELETE FROM clientes WHERE id_cliente = ?", (id_cliente,))
 
 
 # ---------------------------------------------------------------------------
@@ -810,12 +915,27 @@ ESTADOS = ["Recibido", "En proceso", "Esperando refacción", "Terminado",
 
 
 def cambiar_estado(id_nota: str, estado: str) -> None:
-    """Mueve la nota en el flujo del taller."""
+    """
+    Mueve la nota en el flujo del taller.
+
+    Al pasar a «Entregado» se marca como pagada por completo: el taller no
+    entrega un carro sin cobrarlo, así que exigir el registro manual del pago
+    cada vez era un paso de más. Va aquí y no en la pantalla para que valga
+    sin importar desde dónde se llame. Mover la nota a cualquier OTRO estado
+    no toca el pago — un abono ya registrado no debe desaparecer solo porque
+    el estado cambió de nuevo.
+    """
     if estado not in ESTADOS:
         raise ValueError(f"Estado desconocido: {estado}")
     with transaccion() as c:
-        c.execute("UPDATE notas SET estado = ? WHERE id_nota = ?",
-                  (estado, id_nota))
+        if estado == "Entregado":
+            c.execute(
+                "UPDATE notas SET estado = ?, pagado_centavos = total_centavos "
+                "WHERE id_nota = ?",
+                (estado, id_nota))
+        else:
+            c.execute("UPDATE notas SET estado = ? WHERE id_nota = ?",
+                      (estado, id_nota))
 
 
 def cambiar_tasa_iva(id_nota: str, tasa_iva: float) -> None:
@@ -959,6 +1079,83 @@ def obtener_vehiculo(id_vehiculo: int) -> dict | None:
     return vehiculo
 
 
+def descripcion_vehiculo(vehiculo: dict) -> str:
+    """El carro en una línea: «Chevrolet Camaro 2018 · NND-NND-1»."""
+    partes = [vehiculo.get("marca"), vehiculo.get("modelo"),
+              str(vehiculo["anio"]) if vehiculo.get("anio") else None]
+    texto = " ".join(p for p in partes if p)
+    if vehiculo.get("placas"):
+        texto += f" · {vehiculo['placas']}"
+    return texto or "sin datos"
+
+
+def normalizar_placas(placas: str | None) -> str | None:
+    """
+    Deja la placa en mayúsculas y sin espacios sobrantes, o None si va vacía.
+
+    Se normaliza al guardar, no solo al comparar: si una placa entrara como
+    'abc123' y otra como 'ABC-123 ', serían el mismo carro para cualquiera
+    menos para la base. El índice único del esquema compara con
+    `upper(trim(placas))`, así que guardarlas ya normalizadas es lo que hace
+    que la app y la base entiendan lo mismo por «la misma placa».
+    """
+    return (placas or "").strip().upper() or None
+
+
+def buscar_vehiculo_igual(id_cliente: int, marca: str, modelo: str | None,
+                          anio: int | None, color: str | None,
+                          placas: str | None = None,
+                          excluir_id: int | None = None) -> dict | None:
+    """
+    Busca el vehículo que ya ES este carro.
+
+    Dos reglas, porque un taller sí atiende carros idénticos:
+
+      * CON placa, la placa manda y vale para todo el padrón: no existen dos
+        carros con la misma placa, aunque estén a nombre de personas
+        distintas (un cambio de dueño se corrige editando la ficha, no
+        registrando el carro otra vez).
+      * SIN placa no hay con qué distinguir, así que cuenta como repetido el
+        mismo dueño con la misma marca, tipo, año y color. Es exactamente el
+        caso real de los seis Camaro idénticos del mismo cliente. La salida
+        para dos carros de verdad iguales es capturar su placa.
+    """
+    placa = normalizar_placas(placas)
+    with conectar() as c:
+        if placa:
+            fila = c.execute(
+                """
+                SELECT v.*, cl.nombre AS cliente
+                  FROM vehiculos v
+                  JOIN clientes cl ON cl.id_cliente = v.id_cliente
+                 WHERE upper(trim(v.placas)) = ? AND v.id_vehiculo IS NOT ?
+                 LIMIT 1
+                """,
+                (placa, excluir_id),
+            ).fetchone()
+            return dict(fila) if fila else None
+
+        filas = c.execute(
+            """
+            SELECT v.*, cl.nombre AS cliente
+              FROM vehiculos v
+              JOIN clientes cl ON cl.id_cliente = v.id_cliente
+             WHERE v.id_cliente = ?
+               AND (v.placas IS NULL OR trim(v.placas) = '')
+               AND v.id_vehiculo IS NOT ?
+            """,
+            (id_cliente, excluir_id),
+        ).fetchall()
+
+    for fila in filas:
+        if (plegar(fila["marca"]) == plegar(marca)
+                and plegar(fila["modelo"]) == plegar(modelo)
+                and (fila["anio"] or None) == (anio or None)
+                and plegar(fila["color"]) == plegar(color)):
+            return dict(fila)
+    return None
+
+
 def crear_vehiculo(id_cliente: int, marca: str, modelo: str | None,
                    anio: int | None, color: str | None,
                    placas: str | None = None, vin: str | None = None,
@@ -967,6 +1164,18 @@ def crear_vehiculo(id_cliente: int, marca: str, modelo: str | None,
     # claro en vez de dejar que estalle la restricción de la base.
     if id_cliente is None:
         raise ValueError("El vehículo necesita un dueño.")
+
+    # Igual que en `crear_cliente`: la pantalla ya lo comprueba para ofrecer el
+    # registro existente, pero este es el único punto por el que pasan todas
+    # las altas de vehículo de la app.
+    repetido = buscar_vehiculo_igual(id_cliente, marca, modelo, anio, color,
+                                     placas)
+    if repetido:
+        raise ValueError(
+            f"Ese vehículo ya está registrado como #{repetido['id_vehiculo']}: "
+            f"{descripcion_vehiculo(repetido)} (dueño: {repetido['cliente']})."
+        )
+
     with transaccion() as c:
         cursor = c.execute(
             """
@@ -975,7 +1184,7 @@ def crear_vehiculo(id_cliente: int, marca: str, modelo: str | None,
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (id_cliente, marca, (modelo or "").strip() or None, anio,
-             (color or "").strip() or None, (placas or "").strip() or None,
+             (color or "").strip() or None, normalizar_placas(placas),
              (vin or "").strip() or None, (observaciones or "").strip() or None),
         )
         return int(cursor.lastrowid)
@@ -988,6 +1197,17 @@ def actualizar_vehiculo(id_vehiculo: int, id_cliente: int, marca: str,
                         activo: bool) -> None:
     if id_cliente is None:
         raise ValueError("El vehículo necesita un dueño.")
+
+    # Corregir una ficha no puede convertirla en el gemelo de otra que ya
+    # existe; `excluir_id` deja fuera de la comparación al propio vehículo.
+    repetido = buscar_vehiculo_igual(id_cliente, marca, modelo, anio, color,
+                                     placas, excluir_id=id_vehiculo)
+    if repetido:
+        raise ValueError(
+            f"Esos datos ya son los del vehículo #{repetido['id_vehiculo']}: "
+            f"{descripcion_vehiculo(repetido)} (dueño: {repetido['cliente']})."
+        )
+
     with transaccion() as c:
         c.execute(
             """
@@ -997,10 +1217,303 @@ def actualizar_vehiculo(id_vehiculo: int, id_cliente: int, marca: str,
              WHERE id_vehiculo = ?
             """,
             (id_cliente, marca, (modelo or "").strip() or None, anio,
-             (color or "").strip() or None, (placas or "").strip() or None,
+             (color or "").strip() or None, normalizar_placas(placas),
              (vin or "").strip() or None, (observaciones or "").strip() or None,
              1 if activo else 0, id_vehiculo),
         )
+
+
+def contar_dependientes_vehiculo(id_vehiculo: int) -> dict[str, int]:
+    """Cuántos documentos cuelgan de un vehículo, por tipo."""
+    with conectar() as c:
+        fila = c.execute(
+            """
+            SELECT (SELECT COUNT(*) FROM notas WHERE id_vehiculo = :id) AS notas,
+                   (SELECT COUNT(*) FROM cotizaciones WHERE id_vehiculo = :id)
+                       AS cotizaciones,
+                   (SELECT COUNT(*) FROM diagnosticos WHERE id_vehiculo = :id)
+                       AS diagnosticos
+            """,
+            {"id": id_vehiculo},
+        ).fetchone()
+    return {k: fila[k] for k in fila.keys()}
+
+
+def eliminar_vehiculo(id_vehiculo: int) -> None:
+    """
+    Borra un vehículo que no tenga documentos asociados.
+
+    Mismo criterio que `eliminar_cliente`: se comprueba antes para dar un
+    mensaje legible. Para un carro que SÍ tiene historial y ya no viene al
+    taller, lo correcto no es borrarlo —se perdería de qué carro era cada
+    nota— sino desactivarlo (`activo = 0`), que ya lo saca de las listas de
+    captura.
+    """
+    detalle = _detalle_dependientes(contar_dependientes_vehiculo(id_vehiculo))
+    if detalle:
+        raise ValueError(
+            f"No se puede eliminar: el vehículo tiene {detalle}. "
+            f"Si ya no viene al taller, desactívalo en vez de borrarlo."
+        )
+    with transaccion() as c:
+        c.execute("DELETE FROM vehiculos WHERE id_vehiculo = ?", (id_vehiculo,))
+
+
+# ---------------------------------------------------------------------------
+# Diagnósticos con escáner — reporte de códigos de falla (DTC).
+#
+# No maneja dinero ni catálogo: es la lectura del escáner (folio, cliente,
+# vehículo, códigos por sistema) tal como se entrega hoy en papel. El técnico
+# llena los códigos y el resumen a mano, igual que en el formato impreso.
+# ---------------------------------------------------------------------------
+
+GRAVEDADES = ["ALTA", "MEDIA", "BAJA", "INFO"]
+
+
+def siguiente_id_diagnostico(conexion: sqlite3.Connection) -> str:
+    """Folio propio, 'DX-001', para no confundirse con notas ni cotizaciones."""
+    fila = conexion.execute(
+        "SELECT MAX(CAST(SUBSTR(id_diagnostico, 4) AS INTEGER)) AS maximo "
+        "FROM diagnosticos"
+    ).fetchone()
+    siguiente = (fila["maximo"] or 0) + 1
+    return f"DX-{siguiente:03d}"
+
+
+def listar_diagnosticos(busqueda: str = "") -> list[dict]:
+    """Diagnósticos con el nombre del cliente, el vehículo y el total de códigos."""
+    with conectar() as c:
+        filas = c.execute(
+            """
+            SELECT d.*, cl.nombre AS cliente,
+                   v.marca, v.modelo, v.anio, v.color,
+                   COUNT(cod.id_item) AS num_codigos
+              FROM diagnosticos d
+              JOIN clientes cl ON cl.id_cliente = d.id_cliente
+              LEFT JOIN vehiculos v ON v.id_vehiculo = d.id_vehiculo
+              LEFT JOIN diagnostico_codigos cod
+                     ON cod.id_diagnostico = d.id_diagnostico
+             GROUP BY d.id_diagnostico
+             ORDER BY d.fecha DESC, d.id_diagnostico DESC
+            """
+        ).fetchall()
+
+    diagnosticos = [dict(f) for f in filas]
+    if busqueda:
+        diagnosticos = [
+            d for d in diagnosticos
+            if _coincide(busqueda, d["id_diagnostico"], d["cliente"],
+                        d["marca"], d["modelo"], d["color"], d["tecnico"])
+        ]
+    return diagnosticos
+
+
+def obtener_diagnostico(id_diagnostico: str) -> dict | None:
+    """Devuelve el diagnóstico con sus códigos en la clave `codigos`."""
+    with conectar() as c:
+        fila = c.execute(
+            """
+            SELECT d.*, cl.nombre AS cliente, cl.telefono,
+                   v.marca, v.modelo, v.anio, v.color, v.placas
+              FROM diagnosticos d
+              JOIN clientes cl ON cl.id_cliente = d.id_cliente
+              LEFT JOIN vehiculos v ON v.id_vehiculo = d.id_vehiculo
+             WHERE d.id_diagnostico = ?
+            """,
+            (id_diagnostico,),
+        ).fetchone()
+        if fila is None:
+            return None
+        codigos = c.execute(
+            "SELECT * FROM diagnostico_codigos WHERE id_diagnostico = ? "
+            "ORDER BY linea",
+            (id_diagnostico,),
+        ).fetchall()
+
+    diagnostico = dict(fila)
+    diagnostico["codigos"] = [dict(x) for x in codigos]
+    return diagnostico
+
+
+def crear_diagnostico(id_cliente: int, id_vehiculo: int, fecha: str,
+                      codigos: list[dict], tecnico: str | None = None,
+                      num_modulos: int | None = None,
+                      otros_modulos: str | None = None,
+                      resumen: str | None = None) -> str:
+    """
+    Crea un diagnóstico con todos sus códigos en una sola transacción.
+
+    `codigos` es una lista de diccionarios con las claves: sistema,
+    sistema_nota (opcional), codigo, descripcion, significado y gravedad.
+    """
+    if not codigos:
+        raise ValueError("El diagnóstico necesita al menos un código.")
+
+    limpio = lambda v: (v or "").strip() or None  # noqa: E731
+    with transaccion() as c:
+        id_diagnostico = siguiente_id_diagnostico(c)
+        c.execute(
+            """
+            INSERT INTO diagnosticos (id_diagnostico, id_cliente, id_vehiculo,
+                                      fecha, tecnico, num_modulos,
+                                      otros_modulos, resumen)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (id_diagnostico, id_cliente, id_vehiculo, fecha, limpio(tecnico),
+             num_modulos, limpio(otros_modulos), limpio(resumen)),
+        )
+
+        for linea, cod in enumerate(codigos, start=1):
+            c.execute(
+                """
+                INSERT INTO diagnostico_codigos
+                    (id_diagnostico, linea, sistema, sistema_nota, codigo,
+                     descripcion, significado, gravedad)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (id_diagnostico, linea, cod["sistema"].strip(),
+                 limpio(cod.get("sistema_nota")), cod["codigo"].strip(),
+                 cod["descripcion"].strip(), cod["significado"].strip(),
+                 cod.get("gravedad") or "MEDIA"),
+            )
+
+    return id_diagnostico
+
+
+def actualizar_diagnostico(id_diagnostico: str, id_cliente: int,
+                           id_vehiculo: int, fecha: str,
+                           tecnico: str | None = None,
+                           num_modulos: int | None = None,
+                           otros_modulos: str | None = None,
+                           resumen: str | None = None) -> None:
+    """Edita la cabecera de un diagnóstico: no toca sus códigos."""
+    limpio = lambda v: (v or "").strip() or None  # noqa: E731
+    with transaccion() as c:
+        c.execute(
+            """
+            UPDATE diagnosticos
+               SET id_cliente = ?, id_vehiculo = ?, fecha = ?, tecnico = ?,
+                   num_modulos = ?, otros_modulos = ?, resumen = ?
+             WHERE id_diagnostico = ?
+            """,
+            (id_cliente, id_vehiculo, fecha, limpio(tecnico), num_modulos,
+             limpio(otros_modulos), limpio(resumen), id_diagnostico),
+        )
+
+
+def siguiente_linea_diagnostico(conexion: sqlite3.Connection,
+                                id_diagnostico: str) -> int:
+    """Devuelve el siguiente consecutivo de código dentro de un diagnóstico."""
+    fila = conexion.execute(
+        "SELECT COALESCE(MAX(linea), 0) AS maximo FROM diagnostico_codigos "
+        "WHERE id_diagnostico = ?",
+        (id_diagnostico,),
+    ).fetchone()
+    return int(fila["maximo"]) + 1
+
+
+def _renumerar_lineas_diagnostico(conexion: sqlite3.Connection,
+                                  id_diagnostico: str) -> None:
+    """Igual que `_renumerar_lineas`, pero para `diagnostico_codigos`."""
+    conexion.execute(
+        "UPDATE diagnostico_codigos SET linea = linea + 100000 "
+        "WHERE id_diagnostico = ?", (id_diagnostico,)
+    )
+    filas = conexion.execute(
+        "SELECT id_item FROM diagnostico_codigos WHERE id_diagnostico = ? "
+        "ORDER BY linea",
+        (id_diagnostico,),
+    ).fetchall()
+    for numero, fila in enumerate(filas, start=1):
+        conexion.execute(
+            "UPDATE diagnostico_codigos SET linea = ? WHERE id_item = ?",
+            (numero, fila["id_item"]),
+        )
+
+
+def agregar_diagnostico_codigo(id_diagnostico: str, codigo: dict) -> int:
+    """Agrega un código al final de un diagnóstico existente."""
+    limpio = lambda v: (v or "").strip() or None  # noqa: E731
+    with transaccion() as c:
+        linea = siguiente_linea_diagnostico(c, id_diagnostico)
+        cursor = c.execute(
+            """
+            INSERT INTO diagnostico_codigos
+                (id_diagnostico, linea, sistema, sistema_nota, codigo,
+                 descripcion, significado, gravedad)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (id_diagnostico, linea, codigo["sistema"].strip(),
+             limpio(codigo.get("sistema_nota")), codigo["codigo"].strip(),
+             codigo["descripcion"].strip(), codigo["significado"].strip(),
+             codigo.get("gravedad") or "MEDIA"),
+        )
+        return int(cursor.lastrowid)
+
+
+def actualizar_diagnostico_codigo(id_item: int, codigo: str, descripcion: str,
+                                  significado: str, gravedad: str,
+                                  sistema: str | None = None,
+                                  sistema_nota: str | None = None) -> None:
+    """
+    Cambia los datos de un código ya capturado.
+
+    `sistema` normalmente no cambia al editar un renglón suelto —cambiarlo
+    significaría moverlo a otro grupo del reporte—, así que es opcional: si no
+    se da, se deja el que ya tenía.
+    """
+    limpio = lambda v: (v or "").strip() or None  # noqa: E731
+    with transaccion() as c:
+        if sistema is None:
+            fila = c.execute(
+                "SELECT sistema FROM diagnostico_codigos WHERE id_item = ?",
+                (id_item,),
+            ).fetchone()
+            if fila is None:
+                raise ValueError("El código ya no existe.")
+            sistema = fila["sistema"]
+        c.execute(
+            """
+            UPDATE diagnostico_codigos
+               SET sistema = ?, sistema_nota = ?, codigo = ?, descripcion = ?,
+                   significado = ?, gravedad = ?
+             WHERE id_item = ?
+            """,
+            (sistema.strip(), limpio(sistema_nota), codigo.strip(),
+             descripcion.strip(), significado.strip(), gravedad, id_item),
+        )
+
+
+def eliminar_diagnostico_codigo(id_item: int) -> None:
+    """Borra un código y renumera los que quedan."""
+    with transaccion() as c:
+        fila = c.execute(
+            "SELECT id_diagnostico FROM diagnostico_codigos WHERE id_item = ?",
+            (id_item,),
+        ).fetchone()
+        if fila is None:
+            raise ValueError("El código ya no existe.")
+        id_diagnostico = fila["id_diagnostico"]
+
+        cuantos = c.execute(
+            "SELECT COUNT(*) AS n FROM diagnostico_codigos "
+            "WHERE id_diagnostico = ?", (id_diagnostico,)
+        ).fetchone()["n"]
+        if cuantos <= 1:
+            raise ValueError(
+                "Un diagnóstico no puede quedarse sin códigos. "
+                "Si quieres deshacerlo, elimina el diagnóstico completo."
+            )
+
+        c.execute("DELETE FROM diagnostico_codigos WHERE id_item = ?", (id_item,))
+        _renumerar_lineas_diagnostico(c, id_diagnostico)
+
+
+def eliminar_diagnostico(id_diagnostico: str) -> None:
+    """Borra un diagnóstico y, en cascada, sus códigos."""
+    with transaccion() as c:
+        c.execute("DELETE FROM diagnosticos WHERE id_diagnostico = ?",
+                  (id_diagnostico,))
 
 
 # ---------------------------------------------------------------------------
@@ -1351,6 +1864,156 @@ def rechazar_cotizacion(id_cotizacion: str) -> None:
         c.execute(
             "UPDATE cotizaciones SET estado = 'Rechazada' "
             "WHERE id_cotizacion = ?", (id_cotizacion,))
+
+
+def actualizar_cotizacion(id_cotizacion: str, id_cliente: int, fecha: str,
+                          id_vehiculo: int) -> None:
+    """
+    Edita la cabecera de una cotización: cliente, fecha y vehículo.
+
+    Solo tiene sentido para una cotización `Pendiente`: una ya `Convertida` es
+    historial de que ese presupuesto se aceptó (y su nota ya tiene su propia
+    cabecera, independiente), y una `Rechazada` ya se cerró.
+    """
+    with transaccion() as c:
+        fila = c.execute(
+            "SELECT estado FROM cotizaciones WHERE id_cotizacion = ?",
+            (id_cotizacion,),
+        ).fetchone()
+        if fila is None:
+            raise ValueError(f"No existe la cotización {id_cotizacion}.")
+        if fila["estado"] != "Pendiente":
+            raise ValueError(
+                f"Esta cotización ya está «{fila['estado']}»; solo una "
+                f"cotización Pendiente se puede editar."
+            )
+        c.execute(
+            """
+            UPDATE cotizaciones
+               SET id_cliente = ?, fecha = ?, id_vehiculo = ?
+             WHERE id_cotizacion = ?
+            """,
+            (id_cliente, fecha, id_vehiculo, id_cotizacion),
+        )
+
+
+def siguiente_linea_cotizacion(conexion: sqlite3.Connection,
+                               id_cotizacion: str) -> int:
+    """Devuelve el siguiente consecutivo de renglón dentro de una cotización."""
+    fila = conexion.execute(
+        "SELECT COALESCE(MAX(linea), 0) AS maximo FROM cotizacion_partidas "
+        "WHERE id_cotizacion = ?",
+        (id_cotizacion,),
+    ).fetchone()
+    return int(fila["maximo"]) + 1
+
+
+def _renumerar_lineas_cotizacion(conexion: sqlite3.Connection,
+                                 id_cotizacion: str) -> None:
+    """Igual que `_renumerar_lineas`, pero para `cotizacion_partidas`."""
+    conexion.execute(
+        "UPDATE cotizacion_partidas SET linea = linea + 100000 "
+        "WHERE id_cotizacion = ?", (id_cotizacion,)
+    )
+    filas = conexion.execute(
+        "SELECT id_item FROM cotizacion_partidas WHERE id_cotizacion = ? "
+        "ORDER BY linea",
+        (id_cotizacion,),
+    ).fetchall()
+    for numero, fila in enumerate(filas, start=1):
+        conexion.execute(
+            "UPDATE cotizacion_partidas SET linea = ? WHERE id_item = ?",
+            (numero, fila["id_item"]),
+        )
+
+
+def _cotizacion_editable(c: sqlite3.Connection, id_cotizacion: str) -> None:
+    """Lanza si la cotización no existe o ya no está Pendiente."""
+    fila = c.execute(
+        "SELECT estado FROM cotizaciones WHERE id_cotizacion = ?",
+        (id_cotizacion,),
+    ).fetchone()
+    if fila is None:
+        raise ValueError(f"No existe la cotización {id_cotizacion}.")
+    if fila["estado"] != "Pendiente":
+        raise ValueError(
+            f"Esta cotización ya está «{fila['estado']}»; solo una "
+            f"cotización Pendiente se puede editar."
+        )
+
+
+def agregar_cotizacion_partida(id_cotizacion: str, partida: dict) -> int:
+    """Agrega un renglón al final de una cotización existente."""
+    with transaccion() as c:
+        _cotizacion_editable(c, id_cotizacion)
+        linea = siguiente_linea_cotizacion(c, id_cotizacion)
+        cantidad = int(partida["cantidad"])
+        precio = int(partida["precio_unitario_centavos"])
+        cursor = c.execute(
+            """
+            INSERT INTO cotizacion_partidas
+                (id_cotizacion, linea, id_catalogo, tipo_concepto, categoria,
+                 accion, descripcion, posicion, lado, cantidad,
+                 precio_unitario_centavos, total_centavos, notas, id_producto)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (id_cotizacion, linea, partida.get("id_catalogo"),
+             partida["tipo_concepto"], partida["categoria"],
+             partida.get("accion"), partida["descripcion"].strip(),
+             partida.get("posicion"), partida.get("lado"), cantidad, precio,
+             cantidad * precio, (partida.get("notas") or "").strip() or None,
+             partida.get("id_producto")),
+        )
+        return int(cursor.lastrowid)
+
+
+def actualizar_cotizacion_partida(id_item: int, cantidad: int,
+                                  precio_unitario_centavos: int) -> None:
+    """Cambia la cantidad o el precio de un renglón de cotización."""
+    cantidad = int(cantidad)
+    precio = int(precio_unitario_centavos)
+    with transaccion() as c:
+        fila = c.execute(
+            "SELECT id_cotizacion FROM cotizacion_partidas WHERE id_item = ?",
+            (id_item,),
+        ).fetchone()
+        if fila is None:
+            raise ValueError("El renglón ya no existe.")
+        _cotizacion_editable(c, fila["id_cotizacion"])
+        c.execute(
+            """
+            UPDATE cotizacion_partidas
+               SET cantidad = ?, precio_unitario_centavos = ?, total_centavos = ?
+             WHERE id_item = ?
+            """,
+            (cantidad, precio, cantidad * precio, id_item),
+        )
+
+
+def eliminar_cotizacion_partida(id_item: int) -> None:
+    """Borra un renglón de cotización y renumera los que quedan."""
+    with transaccion() as c:
+        fila = c.execute(
+            "SELECT id_cotizacion FROM cotizacion_partidas WHERE id_item = ?",
+            (id_item,),
+        ).fetchone()
+        if fila is None:
+            raise ValueError("El renglón ya no existe.")
+        id_cotizacion = fila["id_cotizacion"]
+        _cotizacion_editable(c, id_cotizacion)
+
+        cuantas = c.execute(
+            "SELECT COUNT(*) AS n FROM cotizacion_partidas "
+            "WHERE id_cotizacion = ?", (id_cotizacion,)
+        ).fetchone()["n"]
+        if cuantas <= 1:
+            raise ValueError(
+                "Una cotización no puede quedarse sin renglones. "
+                "Si quieres deshacerla, elimina la cotización completa."
+            )
+
+        c.execute("DELETE FROM cotizacion_partidas WHERE id_item = ?", (id_item,))
+        _renumerar_lineas_cotizacion(c, id_cotizacion)
 
 
 def eliminar_cotizacion(id_cotizacion: str) -> None:
