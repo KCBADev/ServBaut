@@ -139,10 +139,18 @@ sin cabeza, vía Playwright**. El mismo motor de renderizado que usa cualquier
 navegador moderno, así que el PDF sale idéntico al diseño aprobado, sin
 reinterpretarlo a mano.
 
-El detalle que hace que esto funcione: el HTML relleno se escribe en un
-archivo temporal *dentro de la carpeta de la plantilla* y se abre como
-archivo local, no con una inyección directa de HTML en memoria — es la única
-forma de que las rutas relativas a las tipografías resuelvan correctamente.
+El detalle que hace que esto funcione: el documento se arma **autocontenido**
+antes de imprimir. El logo ya venía incrustado en base64 desde el diseño, y
+`_incrustar_fuentes()` hace lo mismo con las tipografías, que eran lo único
+que seguía siendo una ruta relativa (`url('fonts/…')`). Así se puede usar
+`set_content` e imprimir sin tocar el disco.
+
+Antes se escribía un archivo temporal *dentro de la carpeta de la plantilla*,
+porque era la única forma de que esas rutas relativas resolvieran. Eso exigía
+que el directorio del código fuera escribible — imposible en una imagen de
+contenedor de solo lectura — y dejaba basura si el proceso moría a medio
+imprimir. Como la carpeta `fonts/` nunca llegó a existir, además el PDF
+llevaba años saliendo con la tipografía de reserva sin que nadie lo notara.
 
 Costo asumido conscientemente: unos 150 MB de navegador y 1-2 segundos por
 PDF, en vez de milisegundos. Para imprimir una orden a la vez es irrelevante;

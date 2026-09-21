@@ -75,13 +75,12 @@ py -3.12 -m venv .venv
 El último paso baja el navegador que imprime la orden de trabajo. Son unos
 150 MB y solo se descarga una vez.
 
-**Tipografía de la orden impresa.** La plantilla usa *Archivo*. Si los archivos
-no están, cae a una tipografía de reserva y la hoja se ve bien igual, pero para
-que salga exacta hay que bajar los `.woff2` de
-[Google Fonts](https://fonts.google.com/specimen/Archivo) y ponerlos en
-`Plantillas/Work_order/export/fonts/` con estos nombres:
-`Archivo-Regular.woff2`, `Archivo-Medium.woff2`, `Archivo-SemiBold.woff2` y
-`Archivo-Bold.woff2`. En cuanto aparecen se usan solas, sin tocar código.
+**Tipografía de la orden impresa.** La plantilla usa *Archivo*, que ya viene
+incluida en `assets/fonts/` ([SIL Open Font License](assets/fonts/OFL.txt), que
+permite redistribuirla). Es la versión **variable**: un solo archivo cubre los
+cuatro grosores que pide el diseño, y `nota_pdf.py` la incrusta en el documento
+justo antes de imprimir. Si el archivo llegara a faltar, la hoja cae a una
+tipografía de reserva y se ve bien igual.
 
 ## Puesta en marcha
 

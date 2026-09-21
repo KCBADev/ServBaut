@@ -153,7 +153,7 @@ def generar(id_diagnostico: str) -> bytes:
     diagnostico = db.obtener_diagnostico(id_diagnostico)
     if diagnostico is None:
         raise ValueError(f"No existe el diagnóstico {id_diagnostico}.")
-    return nota_pdf._a_pdf(_rellenar(diagnostico), carpeta=RUTA_PLANTILLA.parent)
+    return nota_pdf._a_pdf(_rellenar(diagnostico))
 
 
 def nombre_archivo(id_diagnostico: str) -> str:

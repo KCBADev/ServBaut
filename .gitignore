@@ -58,10 +58,11 @@ db_backup/
 Plantillas/*/uploads/
 Plantillas/*/screenshots/
 Plantillas/*/.thumbnail
-# nota_pdf.py escribe el HTML relleno como archivo temporal JUNTO a la
-# plantilla (lo necesita ahi para que resuelvan las rutas de las tipografias).
-# Normalmente lo borra al terminar, pero si el proceso muere a media faena
-# queda uno suelto, y no tiene por que acabar en el repositorio.
+# Regla historica: nota_pdf.py escribia el HTML relleno como archivo temporal
+# junto a la plantilla, porque lo necesitaba ahi para que resolvieran las rutas
+# de las tipografias. Ya no: el documento se incrusta entero en memoria y se
+# imprime sin tocar el disco. La regla se queda por si quedo alguno suelto de
+# una version anterior.
 Plantillas/*/export/tmp*.html
 # El resto del material del lienzo: sistema de diseno, scripts del editor y
 # los borradores .dc.html. Lo unico que el codigo abre es
