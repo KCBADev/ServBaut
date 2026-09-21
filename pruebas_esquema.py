@@ -436,8 +436,10 @@ def main() -> None:
             migraciones.sellar(c, 5)
             comprobar("Sellar y volver a leer da el mismo número",
                       migraciones.version_actual(c) == 5)
+            esperados = list(range(6, migraciones.VERSION_OBJETIVO + 1))
             comprobar("Con la versión atrasada aparecen pasos pendientes",
-                      [p.version for p in migraciones.pendientes(c)] == [6, 7, 8])
+                      [p.version for p in migraciones.pendientes(c)]
+                      == esperados)
             migraciones.sellar(c, migraciones.VERSION_OBJETIVO)
             comprobar("Al día no queda ningún paso pendiente",
                       migraciones.pendientes(c) == [])

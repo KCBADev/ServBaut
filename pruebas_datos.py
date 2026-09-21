@@ -13,12 +13,14 @@ Uso:
 from __future__ import annotations
 
 import io
+import sqlite3
 import sys
 import tempfile
 from pathlib import Path
 
 import pandas as pd
 
+import arranque
 import auth
 import db
 import exportar
@@ -611,6 +613,44 @@ def main() -> None:
 
         comprobar("El cuadre del histórico no se movió con las cotizaciones",
                   db.verificar_cuadre()["coinciden"])
+
+        print("\n--- arranque.py: primer administrador ---")
+        # Base propia y aparte, no la compartida del resto de la suite: si el
+        # admin automático conviviera con "jefe" y "ayudante" más abajo,
+        # dejaría de ser cierto que "jefe" es el ÚNICO administrador activo
+        # tras desactivar a "ayudante", y rompería esa prueba sin que tuviera
+        # nada que ver con lo que se está probando aquí.
+        with tempfile.TemporaryDirectory() as otra_carpeta:
+            ruta_arranque = Path(otra_carpeta) / "prueba.db"
+            db.inicializar_esquema(ruta_arranque)
+
+            with db.transaccion(ruta_arranque) as c:
+                informe1 = arranque.asegurar_admin(c)
+            comprobar("Sin usuarios, crea el primer administrador",
+                      informe1 is not None)
+            with db.conectar(ruta_arranque) as c:
+                fila = c.execute(
+                    "SELECT usuario, rol, debe_cambiar_password FROM usuarios"
+                ).fetchone()
+            comprobar("Usa el nombre por omisión ('admin')",
+                      fila["usuario"] == "admin")
+            comprobar("Nace como administrador", fila["rol"] == "admin")
+            comprobar("Nace con el cambio de contraseña obligatorio",
+                      bool(fila["debe_cambiar_password"]))
+
+            with db.transaccion(ruta_arranque) as c:
+                informe2 = arranque.asegurar_admin(c)
+            comprobar("Con un administrador ya existente, no crea otro",
+                      informe2 is None)
+
+            try:
+                with db.transaccion(ruta_arranque) as c:
+                    auth.crear_usuario(c, "admin", "otra-clave", rol="admin")
+                comprobar("Dos administradores con el mismo nombre: rechazado",
+                          False)
+            except sqlite3.IntegrityError:
+                comprobar("Dos administradores con el mismo nombre: rechazado",
+                          True)
 
         print("\n--- Usuarios y roles ---")
         with db.transaccion() as conexion:

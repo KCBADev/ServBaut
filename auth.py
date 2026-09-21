@@ -57,15 +57,27 @@ def generar_password(longitud: int = 14) -> str:
 
 
 def crear_usuario(conexion: sqlite3.Connection, usuario: str, password: str,
-                  rol: str = "operador") -> int:
-    """Inserta un usuario nuevo y devuelve su id."""
+                  rol: str = "operador",
+                  debe_cambiar_password: bool = False) -> int:
+    """
+    Inserta un usuario nuevo y devuelve su id.
+
+    `debe_cambiar_password` es para cuando la contraseña no la eligió la
+    persona que va a usarla —la que genera el arranque automático, o la que
+    alguien puso a mano en una variable de entorno—: la app la obliga a
+    cambiarla antes de dejarla pasar. Por omisión en `False` porque cuando un
+    administrador da de alta a alguien desde Configuración, la contraseña que
+    tecleó ahí ya es la que esa persona va a usar.
+    """
     hash_password, salt, iteraciones = hashear_password(password)
     cursor = conexion.execute(
         """
-        INSERT INTO usuarios (usuario, hash_password, salt, iteraciones, rol)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO usuarios (usuario, hash_password, salt, iteraciones, rol,
+                               debe_cambiar_password)
+        VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (usuario.strip(), hash_password, salt, iteraciones, rol),
+        (usuario.strip(), hash_password, salt, iteraciones, rol,
+         int(debe_cambiar_password)),
     )
     return int(cursor.lastrowid)
 
@@ -81,7 +93,8 @@ def autenticar(conexion: sqlite3.Connection, usuario: str,
     """
     fila = conexion.execute(
         """
-        SELECT id_usuario, usuario, hash_password, salt, iteraciones, rol, activo
+        SELECT id_usuario, usuario, hash_password, salt, iteraciones, rol,
+               activo, debe_cambiar_password
           FROM usuarios
          WHERE usuario = ?
         """,
@@ -104,17 +117,27 @@ def autenticar(conexion: sqlite3.Connection, usuario: str,
         "id_usuario": fila["id_usuario"],
         "usuario": fila["usuario"],
         "rol": fila["rol"],
+        "debe_cambiar_password": bool(fila["debe_cambiar_password"]),
     }
 
 
 def cambiar_password(conexion: sqlite3.Connection, id_usuario: int,
                      password_nueva: str) -> None:
-    """Reemplaza la contraseña de un usuario (genera salt nuevo)."""
+    """
+    Reemplaza la contraseña de un usuario (genera salt nuevo).
+
+    También apaga `debe_cambiar_password`, sin importar por qué se llamó: ya
+    sea el cambio voluntario de Configuración → Mi cuenta o la pantalla de
+    cambio obligatorio del primer acceso, el resultado es el mismo —una
+    contraseña que la persona sí eligió— y no tiene sentido mantener dos
+    caminos para apagar la misma bandera.
+    """
     hash_password, salt, iteraciones = hashear_password(password_nueva)
     conexion.execute(
         """
         UPDATE usuarios
-           SET hash_password = ?, salt = ?, iteraciones = ?
+           SET hash_password = ?, salt = ?, iteraciones = ?,
+               debe_cambiar_password = 0
          WHERE id_usuario = ?
         """,
         (hash_password, salt, iteraciones, id_usuario),

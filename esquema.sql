@@ -484,8 +484,30 @@ CREATE TABLE IF NOT EXISTS usuarios (
     activo        INTEGER NOT NULL DEFAULT 1 CHECK (activo IN (0, 1)),
     creado_en     TEXT NOT NULL DEFAULT (datetime('now')),
     ultimo_acceso TEXT,
+    -- Se activa al crear la cuenta con una contraseña que el usuario no
+    -- eligió (la que genera el arranque automático, o la que alguien puso a
+    -- mano en TALLER_ADMIN_PASSWORD): obliga a cambiarla antes de dejar
+    -- pasar a la navegación. `auth.cambiar_password` la apaga sola.
+    debe_cambiar_password INTEGER NOT NULL DEFAULT 0
+        CHECK (debe_cambiar_password IN (0, 1)),
 
     CHECK (length(trim(usuario)) > 0)
+);
+
+-- ---------------------------------------------------------------------------
+-- intentos_acceso — límite de intentos de inicio de sesión.
+--
+-- Vivía en `st.session_state`, así que recargar la página lo reiniciaba: un
+-- candado que se abre solo con F5 no es un candado. Aquí sobrevive a la
+-- sesión y al proceso. Cuenta también los usuarios que NO existen: si solo se
+-- contaran los reales, el tiempo de espera delataría cuáles sí existen, que
+-- es justo lo que `auth.autenticar` ya evita con su mensaje único.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS intentos_acceso (
+    usuario         TEXT PRIMARY KEY,     -- lower(trim(...)) de lo tecleado
+    fallidos        INTEGER NOT NULL DEFAULT 0,
+    ultimo_intento  TEXT NOT NULL,
+    bloqueado_hasta TEXT                  -- NULL = sin bloqueo activo
 );
 
 -- ---------------------------------------------------------------------------

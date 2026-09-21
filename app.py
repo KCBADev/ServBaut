@@ -12,12 +12,15 @@ Uso:
 from __future__ import annotations
 
 import random
+import sys
 from pathlib import Path
 
 import streamlit as st
 
+import arranque
 import auth
 import db
+import migraciones
 import styles
 from paginas import (catalogo, clientes, configuracion, cotizaciones,
                      crear_nota, dashboard, diagnosticos, notas, reportes,
@@ -194,6 +197,33 @@ def _fondo_animado() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Arranque autónomo
+# ---------------------------------------------------------------------------
+
+@st.cache_resource(show_spinner="Preparando la base de datos…")
+def _preparar_base() -> arranque.Informe:
+    """
+    Crea o migra la base y asegura el administrador, una sola vez por
+    proceso.
+
+    `st.cache_resource` es la parte que importa aquí: a diferencia de
+    `st.cache_data`, su resultado no se guarda por sesión sino por proceso,
+    así que aunque cien personas abran la app al mismo tiempo esto corre una
+    sola vez y las demás reciben el resultado ya calculado.
+    """
+    informe = arranque.preparar()
+    if informe.admin_creado:
+        # A un registro del servidor, nunca a pantalla: esto corre antes de
+        # cualquier autenticación, y lo que se pintara en la pantalla de
+        # acceso lo vería cualquier visitante. La contraseña en sí nunca
+        # llega ni siquiera hasta aquí —queda en el archivo que escribió
+        # `arranque.py`—, solo su ruta.
+        print(f"Administrador «{informe.admin_creado}» creado. Contraseña "
+              f"inicial en: {informe.ruta_clave_inicial}", file=sys.stderr)
+    return informe
+
+
+# ---------------------------------------------------------------------------
 # Autenticación
 # ---------------------------------------------------------------------------
 
@@ -222,13 +252,6 @@ def pantalla_login() -> None:
             '</div>',
             unsafe_allow_html=True,
         )
-
-        if not db.RUTA_DB.exists():
-            st.error(
-                "No existe la base de datos. Corre primero el script de carga:\n\n"
-                "`.venv\\Scripts\\python.exe cargar_datos.py`"
-            )
-            return
 
         intentos = st.session_state.get("intentos_fallidos", 0)
         if intentos >= MAX_INTENTOS:
@@ -268,6 +291,66 @@ def cerrar_sesion() -> None:
         del st.session_state[clave]
 
 
+def pantalla_cambio_obligatorio(usuario: dict) -> None:
+    """
+    Se interpone entre el login y la navegación cuando la cuenta nace con una
+    contraseña que la persona no eligió: la del primer administrador, que
+    `arranque.py` generó al azar o que alguien puso a mano en
+    TALLER_ADMIN_PASSWORD.
+
+    No se puede saltar apretando atrás ni recargando: mientras
+    `debe_cambiar_password` siga en 1 en la base, cada rerun de `main()`
+    vuelve a caer aquí en vez de construir la navegación.
+    """
+    _fondo_animado()
+    _, centro, _ = st.columns([1, 2, 1])
+
+    with centro:
+        st.markdown(
+            '<div class="marca">'
+            '<div class="marca-nombre">Auto Servicio Bautista</div>'
+            '<div class="marca-filete"></div>'
+            '<div class="marca-descriptor">Gestión del Taller</div>'
+            '</div>',
+            unsafe_allow_html=True,
+        )
+        st.markdown("#### Elige una contraseña para tu cuenta")
+        st.caption(
+            "Esta cuenta se creó con una contraseña provisional. Antes de "
+            "entrar al sistema, ponle una que solo tú conozcas."
+        )
+
+        with st.form("cambio_obligatorio"):
+            nueva = st.text_input("Contraseña nueva", type="password")
+            confirmar = st.text_input("Confirmar contraseña nueva",
+                                      type="password")
+            guardar = st.form_submit_button("Guardar y continuar",
+                                            width="stretch")
+
+        if not guardar:
+            return
+
+        if not nueva or not confirmar:
+            st.warning("Llena los dos campos.")
+        elif nueva != confirmar:
+            st.error("La contraseña nueva y su confirmación no coinciden.")
+        elif len(nueva) < 8:
+            st.error("La contraseña nueva debe tener al menos 8 caracteres.")
+        else:
+            with db.conectar() as conexion:
+                auth.cambiar_password(conexion, usuario["id_usuario"], nueva)
+                conexion.commit()
+            # Se actualiza también la copia en sesión, no solo la base: la
+            # siguiente interacción (la que sea) vuelve a evaluar esta
+            # bandera desde `st.session_state`, y sin esto seguiría leyendo
+            # la vieja y regresaría aquí en un ciclo sin salida. No se fuerza
+            # un `st.rerun()` —igual que en Configuración → Mi cuenta— para
+            # que el mensaje de éxito sí se alcance a ver en vez de
+            # desaparecer en la misma vuelta en la que aparece.
+            st.session_state.usuario["debe_cambiar_password"] = False
+            st.success("Contraseña actualizada. Continúa a la aplicación.")
+
+
 def barra_lateral(usuario: dict) -> None:
     """Identidad del usuario y cierre de sesión.
 
@@ -296,10 +379,33 @@ def main() -> None:
     # a renderizarse con los estilos por omisión.
     styles.apply_global_theme()
 
+    try:
+        _preparar_base()
+    except migraciones.MigracionManual as error:
+        # El mensaje trae rutas y nombres de guiones internos: información
+        # para quien administra el servidor, no para quien visita esta
+        # pantalla sin haberse autenticado. Por eso va al registro y no a
+        # `st.error`.
+        print(f"Arranque detenido — hace falta un paso manual:\n{error}",
+              file=sys.stderr)
+        st.error("El sistema no está disponible en este momento. "
+                "Avisa al administrador.")
+        return
+    except Exception as error:
+        print(f"No se pudo preparar la base de datos: {error}",
+              file=sys.stderr)
+        st.error("El sistema no está disponible en este momento. "
+                "Avisa al administrador.")
+        return
+
     usuario = usuario_actual()
 
     if usuario is None:
         pantalla_login()
+        return
+
+    if usuario.get("debe_cambiar_password"):
+        pantalla_cambio_obligatorio(usuario)
         return
 
     barra_lateral(usuario)

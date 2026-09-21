@@ -118,7 +118,13 @@ cargador encuentra solo. Lo regeneras con:
 ```
 
 Abre <http://localhost:8501> y entra con las credenciales del paso anterior.
-Cambia la contraseña desde la barra lateral.
+
+**Si saltas el paso 1** —por ejemplo, en un servidor recién levantado, sin
+Excel que cargar— la app ya no se limita a mostrar un error: crea la base
+vacía sola, con el esquema al día, y da de alta un administrador con una
+contraseña provisional. Esa contraseña queda escrita en
+`primera-clave.txt`, junto a `taller.db`, nunca en pantalla ni en ningún
+registro; la cuenta pide cambiarla en el primer inicio de sesión.
 
 ## Análisis
 

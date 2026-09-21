@@ -39,7 +39,7 @@ import db
 # Versión en la que `esquema.sql` deja una base recién creada. Subir este número
 # exige agregar su `Paso` correspondiente en PASOS y su equivalente en
 # `esquema.sql`, para que una base nueva y una migrada acaben idénticas.
-VERSION_OBJETIVO = 8
+VERSION_OBJETIVO = 9
 
 
 class MigracionManual(RuntimeError):
@@ -84,6 +84,27 @@ def _columna(conexion: sqlite3.Connection, tabla: str, columna: str) -> bool:
     return any(f["name"] == columna for f in filas)
 
 
+# A diferencia de v2-v8, que solo existieron para una base que ya pasó por
+# todas, esta sí se automatiza: en un servidor puede haber varias bases
+# (la del taller, la de pruebas, la de un despliegue nuevo) que hay que poner
+# al día sin que nadie entre a mano.
+_ESQUEMA_V9 = """
+ALTER TABLE usuarios ADD COLUMN debe_cambiar_password INTEGER NOT NULL
+    DEFAULT 0 CHECK (debe_cambiar_password IN (0, 1));
+
+CREATE TABLE IF NOT EXISTS intentos_acceso (
+    usuario         TEXT PRIMARY KEY,
+    fallidos        INTEGER NOT NULL DEFAULT 0,
+    ultimo_intento  TEXT NOT NULL,
+    bloqueado_hasta TEXT
+);
+"""
+
+
+def _aplicar_v9(conexion: sqlite3.Connection) -> None:
+    conexion.executescript(_ESQUEMA_V9)
+
+
 PASOS: tuple[Paso, ...] = (
     Paso(1, "Esquema original: clientes, notas y partidas",
          lambda c: _tabla(c, "notas")),
@@ -108,6 +129,9 @@ PASOS: tuple[Paso, ...] = (
     Paso(8, "Candados contra clientes y vehículos duplicados",
          lambda c: _indice(c, "idx_clientes_unico"),
          guion="migrar_v8.py"),
+    Paso(9, "Cambio de contraseña obligatorio y límite de acceso persistido",
+         lambda c: _columna(c, "usuarios", "debe_cambiar_password"),
+         aplicar=_aplicar_v9),
 )
 
 

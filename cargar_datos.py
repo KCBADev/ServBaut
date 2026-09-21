@@ -25,7 +25,7 @@ from collections import Counter
 
 import pandas as pd
 
-import auth
+import arranque
 import db
 from explorar_excel import detectar_bloques, extraer_tabla, localizar_excel
 
@@ -409,15 +409,12 @@ def cargar(conexion: sqlite3.Connection, filas_clientes: list, filas_notas: list
     return insertados
 
 
-def asegurar_admin(conexion: sqlite3.Connection) -> tuple[str, str] | None:
-    """Crea el usuario administrador inicial si todavía no hay ninguno."""
-    existen = conexion.execute("SELECT COUNT(*) AS n FROM usuarios").fetchone()["n"]
-    if existen:
-        return None
-    usuario = "admin"
-    password = auth.generar_password()
-    auth.crear_usuario(conexion, usuario, password, rol="admin")
-    return usuario, password
+# `asegurar_admin` vivía aquí; se movió a `arranque.py` para que el arranque
+# autónomo del servidor (que también necesita crear el primer administrador,
+# sin nadie mirando la terminal) use la misma definición y no dos que se
+# puedan ir desalineando. Se reexporta para no romper a quien la importaba de
+# `cargar_datos`.
+asegurar_admin = arranque.asegurar_admin
 
 
 # ---------------------------------------------------------------------------
