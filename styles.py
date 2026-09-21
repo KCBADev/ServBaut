@@ -414,18 +414,9 @@ def apply_global_theme() -> None:
     """
     st.markdown(_hoja_de_estilo(), unsafe_allow_html=True)
 
-
-def tarjeta(contenido: str, titulo: str | None = None) -> None:
-    """
-    Dibuja un bloque con el borde y el fondo de panel de la aplicación.
-
-    `titulo` es una etiqueta plana y se escapa. `contenido` se inserta TAL
-    CUAL, sin escapar — a propósito, porque el punto de esta función es
-    aceptar marcado (un `<b>`, un `<div>` anidado). Quien la llame es
-    responsable de escapar cualquier dato que no controle (un nombre de
-    cliente, una descripción) antes de pasarlo aquí.
-    """
-    encabezado = (f'<div class="tarjeta-titulo">{html.escape(titulo)}</div>'
-                 if titulo else "")
-    st.markdown(f'<div class="tarjeta">{encabezado}{contenido}</div>',
-                unsafe_allow_html=True)
+# Existió aquí `tarjeta(contenido, titulo=None)`: insertaba `contenido` sin
+# escapar, a propósito, para poder aceptar marcado. Se quitó porque nunca
+# tuvo un solo llamador en todo el proyecto — quedaba como una trampa
+# esperando a que alguien, algún día, le pasara ahí un nombre de cliente sin
+# pensarlo dos veces. Las reglas CSS `.tarjeta`/`.tarjeta-titulo` de la hoja
+# de estilo se dejan: no son el riesgo, y quitarlas no aporta nada.

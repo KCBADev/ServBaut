@@ -17,7 +17,7 @@ from __future__ import annotations
 import sqlite3
 import unicodedata
 from contextlib import contextmanager
-from datetime import date
+from datetime import date, datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Iterator
@@ -1623,6 +1623,98 @@ def cambiar_rol_usuario(id_usuario: int, rol: str) -> None:
                 )
         c.execute("UPDATE usuarios SET rol = ? WHERE id_usuario = ?",
                   (rol, id_usuario))
+
+
+# ---------------------------------------------------------------------------
+# Límite de intentos de acceso (tabla `intentos_acceso`, migración v9).
+#
+# Antes vivía en `st.session_state`, así que recargar la página lo reiniciaba
+# — un candado que se abre solo con F5 no es un candado. Aquí sobrevive a la
+# sesión y al proceso.
+#
+# Dos decisiones deliberadas:
+#   * Se cuenta por NOMBRE DE USUARIO tecleado, exista o no. Si solo se
+#     contaran los usuarios reales, el tiempo de espera delataría cuáles sí
+#     existen — justo lo que `auth.autenticar` ya evita con su mensaje único.
+#   * La espera crece exponencial en vez de bloquear en seco. Un bloqueo duro
+#     convierte el límite en una negación de servicio contra el usuario
+#     legítimo: cualquiera que sepa que existe "admin" lo dejaría fuera a
+#     propósito. Con esto, cada intento de más solo cuesta más tiempo.
+# ---------------------------------------------------------------------------
+
+def _llave_intentos(usuario: str) -> str:
+    """Normaliza el nombre tecleado para usarlo como llave de la tabla."""
+    return usuario.strip().lower()
+
+
+def _segundos_espera(fallidos: int) -> int:
+    """
+    Segundos de espera tras `fallidos` intentos seguidos.
+
+    0 mientras no se pase de `config.max_intentos()`: equivocarse una vez no
+    debe hacer esperar a nadie. De ahí para arriba la espera se dobla en cada
+    intento — 30 s, 60, 120, ... — con un techo de 15 minutos.
+    """
+    exceso = fallidos - config.max_intentos()
+    if exceso <= 0:
+        return 0
+    return min(30 * 2 ** (exceso - 1), 900)
+
+
+def registrar_intento_fallido(usuario: str) -> int:
+    """Suma un intento fallido para `usuario` y devuelve el total acumulado."""
+    llave = _llave_intentos(usuario)
+    with transaccion() as c:
+        c.execute(
+            """
+            INSERT INTO intentos_acceso (usuario, fallidos, ultimo_intento)
+            VALUES (?, 1, datetime('now'))
+            ON CONFLICT (usuario) DO UPDATE SET
+                fallidos = fallidos + 1,
+                ultimo_intento = datetime('now')
+            """,
+            (llave,),
+        )
+        fallidos = c.execute(
+            "SELECT fallidos FROM intentos_acceso WHERE usuario = ?", (llave,)
+        ).fetchone()["fallidos"]
+
+        espera = _segundos_espera(fallidos)
+        if espera:
+            c.execute(
+                """
+                UPDATE intentos_acceso
+                   SET bloqueado_hasta = datetime('now', ?)
+                 WHERE usuario = ?
+                """,
+                (f"+{espera} seconds", llave),
+            )
+    return fallidos
+
+
+def limpiar_intentos(usuario: str) -> None:
+    """Borra el historial de intentos fallidos tras un acceso correcto."""
+    llave = _llave_intentos(usuario)
+    with transaccion() as c:
+        c.execute("DELETE FROM intentos_acceso WHERE usuario = ?", (llave,))
+
+
+def segundos_de_bloqueo(usuario: str) -> int:
+    """
+    Segundos que faltan para poder volver a intentar, o 0 si ya se puede
+    (nunca se bloqueó, o el bloqueo ya venció).
+    """
+    llave = _llave_intentos(usuario)
+    with conectar() as c:
+        fila = c.execute(
+            "SELECT bloqueado_hasta FROM intentos_acceso WHERE usuario = ?",
+            (llave,),
+        ).fetchone()
+    if fila is None or fila["bloqueado_hasta"] is None:
+        return 0
+    hasta = datetime.fromisoformat(fila["bloqueado_hasta"])
+    ahora = datetime.now(timezone.utc).replace(tzinfo=None)
+    return max(0, int((hasta - ahora).total_seconds()))
 
 
 def _renumerar_lineas(conexion: sqlite3.Connection, id_nota: str) -> None:

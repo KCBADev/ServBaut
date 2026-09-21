@@ -18,7 +18,7 @@ import shutil
 import sqlite3
 import sys
 import tempfile
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from streamlit.testing.v1 import AppTest
@@ -189,6 +189,66 @@ def _prueba_cambio_obligatorio() -> None:
             comprobar("La contraseña nueva sí funciona",
                       auth.autenticar(c, "provisional",
                                       "ClaveNuevaSegura456") is not None)
+    finally:
+        db.RUTA_DB = original_ruta
+        shutil.rmtree(carpeta, ignore_errors=True)
+
+
+def _prueba_limite_de_acceso_sobrevive_recarga() -> None:
+    """
+    Prueba el motivo por el que el límite de intentos se movió a la base: que
+    NO se reinicie con una «recarga de la página».
+
+    `AppTest.from_file` arma una ejecución nueva de `app.py` cada vez que se
+    llama, exactamente como recargar la pestaña en un navegador de verdad —
+    empieza con `st.session_state` vacío. Si el límite siguiera viviendo ahí
+    (como antes), una segunda instancia como esta lo encontraría en cero.
+    Encontrarlo activo demuestra que la autoridad es la base, no la sesión.
+    """
+    print("\n--- Límite de acceso: sobrevive a una recarga (base aislada) ---")
+    original_ruta = db.RUTA_DB
+    carpeta = tempfile.mkdtemp(prefix="pruebas_limite_acceso_",
+                               dir=config.ruta_temporal())
+    db.RUTA_DB = Path(carpeta) / "prueba.db"
+    try:
+        db.inicializar_esquema()
+        with db.transaccion() as c:
+            auth.crear_usuario(c, "candado", "ClaveCorrecta123", rol="admin")
+
+        maximo = config.max_intentos()
+        app = AppTest.from_file("app.py", default_timeout=60)
+        app.run()
+        for _ in range(maximo + 1):
+            app.text_input[0].set_value("candado")
+            app.text_input[1].set_value("clave-equivocada")
+            app = app.button[0].click().run()
+        comprobar(f"El intento {maximo + 1} ya avisa que hay que esperar, "
+                  f"sin esperar a uno más",
+                  any("Espera" in e.value for e in app.error),
+                  sin_excepciones(app))
+
+        print("\n--- «Recarga»: una instancia nueva de la app ---")
+        recarga = AppTest.from_file("app.py", default_timeout=60)
+        recarga.run()
+        recarga.text_input[0].set_value("candado")
+        recarga.text_input[1].set_value("ClaveCorrecta123")  # la correcta
+        recarga = recarga.button[0].click().run()
+        comprobar("El bloqueo sigue activo aunque la contraseña ahora sí sea "
+                  "correcta y la sesión sea otra",
+                  any("Espera" in e.value for e in recarga.error))
+        comprobar("Y sigue sin autenticarse",
+                  "usuario" not in recarga.session_state)
+
+        print("\n--- Tras limpiar el bloqueo, sí deja entrar ---")
+        db.limpiar_intentos("candado")
+        tercera = AppTest.from_file("app.py", default_timeout=60)
+        tercera.run()
+        tercera.text_input[0].set_value("candado")
+        tercera.text_input[1].set_value("ClaveCorrecta123")
+        tercera = tercera.button[0].click().run()
+        comprobar("Con el bloqueo limpio, la contraseña correcta sí entra",
+                  "usuario" in tercera.session_state,
+                  sin_excepciones(tercera))
     finally:
         db.RUTA_DB = original_ruta
         shutil.rmtree(carpeta, ignore_errors=True)
@@ -369,6 +429,7 @@ def main() -> None:
         comprobar("Sigue sin haber sesión", "usuario" not in app.session_state)
 
         _prueba_cambio_obligatorio()
+        _prueba_limite_de_acceso_sobrevive_recarga()
 
         print("\n--- Con sesión abierta ---")
         app = abrir()
@@ -387,6 +448,46 @@ def main() -> None:
         # tiene su propio lienzo oscuro y no debe heredar la animación.
         comprobar("El fondo animado NO se filtra al resto de la app",
                   not any("#lluvia" in m.value for m in app.markdown))
+
+        print("\n--- Expiración de sesión ---")
+        comprobar("Una sesión recién abierta queda con sus dos relojes",
+                  "inicio_sesion" in app.session_state
+                  and "ultima_actividad" in app.session_state)
+
+        app_inactiva = abrir()
+        # Retrocede el reloj de actividad más allá del límite de inactividad,
+        # sin tocar el de duración absoluta: así se aísla el motivo exacto
+        # por el que se cierra.
+        app_inactiva.session_state.ultima_actividad = (
+            datetime.now(timezone.utc)
+            - timedelta(minutes=config.minutos_inactividad() + 1))
+        app_inactiva = app_inactiva.run()
+        comprobar("Por inactividad, cierra la sesión sola",
+                  "usuario" not in app_inactiva.session_state)
+        comprobar("Y vuelve a la pantalla de acceso",
+                  len(app_inactiva.text_input) == 2)
+        comprobar("Avisa por qué se cerró",
+                  any("venció por inactividad" in i.value
+                      for i in app_inactiva.info))
+
+        app_vencida = abrir()
+        # Aquí al revés: la actividad es reciente (justo ahora), pero el
+        # inicio de la sesión es de hace más de config.horas_sesion() — la
+        # tablet que nunca se apaga y nunca deja de tocarse.
+        app_vencida.session_state.inicio_sesion = (
+            datetime.now(timezone.utc)
+            - timedelta(hours=config.horas_sesion() + 1))
+        app_vencida.session_state.ultima_actividad = datetime.now(timezone.utc)
+        app_vencida = app_vencida.run()
+        comprobar("Por duración máxima, cierra la sesión aunque siga activa",
+                  "usuario" not in app_vencida.session_state)
+
+        app_vigente = abrir()
+        app_vigente.session_state.ultima_actividad = (
+            datetime.now(timezone.utc) - timedelta(minutes=1))
+        app_vigente = app_vigente.run()
+        comprobar("Dentro de los límites, la sesión sigue viva",
+                  "usuario" in app_vigente.session_state)
 
         print("\n--- Cada pantalla renderiza ---")
         for modulo, esperado in (

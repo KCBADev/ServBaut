@@ -201,8 +201,23 @@ y base, no una foto fija de un día de agosto.
   nombres y teléfonos reales de 58 clientes y no deben salir de la
   computadora del taller.
 - La base de datos vive **fuera de la carpeta del proyecto**, en un disco
-  distinto al del sistema — una decisión operativa después de que el disco
-  del sistema se quedara sin espacio libre a medio guardar una nota.
+  distinto al del sistema por omisión — una decisión operativa después de
+  que el disco del sistema se quedara sin espacio libre a medio guardar una
+  nota. `config.py` la vuelve configurable por entorno sin cambiar ese
+  comportamiento por omisión.
+- **Límite de intentos de acceso persistido** (`intentos_acceso`, tabla),
+  no en `session_state`: recargar la página ya no lo reinicia. Se cuenta por
+  nombre de usuario tecleado, exista o no —si solo se contaran los reales, el
+  tiempo de espera delataría cuáles existen—, y la espera crece exponencial
+  en vez de bloquear en seco, para no convertir el límite en una negación de
+  servicio contra quien sí tiene la contraseña correcta.
+- **Expiración de sesión** por inactividad y por duración absoluta
+  (`app.py`, `_sesion_vigente`): cubre la tablet que se queda encendida, no
+  robo de credenciales — aquí no hay ningún token que robar.
+- El primer administrador nace con una contraseña que no eligió (generada al
+  azar, o la que alguien puso en `TALLER_ADMIN_PASSWORD`) y con
+  `debe_cambiar_password = 1`: la app no deja pasar a la navegación hasta que
+  la cambie.
 
 ## Decisiones que tomaría distinto a mayor escala
 
@@ -216,6 +231,10 @@ Ser explícito sobre los límites de un diseño es parte del diseño:
   lógica, porque SQLite no tiene triggers parametrizables. Con una tercera
   tabla de este tipo, valdría la pena revisar si conviene otra forma de
   organizarlo.
-- **No hay control de versiones del esquema** más allá de los scripts en
-  `historico/` corridos a mano. Con un equipo de más de una persona, eso
-  necesitaría una herramienta como Alembic.
+- **El control de versiones del esquema (`migraciones.py`, `PRAGMA
+  user_version`) solo automatiza hacia adelante.** Las migraciones v2-v8, que
+  ya se aplicaron a la única base que existió, se dejaron manuales a
+  propósito: automatizar una reconstrucción de tablas que nunca se va a
+  volver a ejecutar es riesgo sin beneficio. Con un equipo de más de una
+  persona tocando el esquema seguido, valdría la pena una herramienta como
+  Alembic en vez de esto.

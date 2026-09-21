@@ -22,6 +22,7 @@ import pandas as pd
 
 import arranque
 import auth
+import config
 import db
 import exportar
 import nota_pdf
@@ -682,6 +683,48 @@ def main() -> None:
             comprobar("Tampoco deja quitarle el rol", False)
         except ValueError:
             comprobar("Tampoco deja quitarle el rol", True)
+
+        print("\n--- Límite de intentos de acceso ---")
+        db.limpiar_intentos("jefe")
+        db.limpiar_intentos("nadie-existe")
+        maximo = config.max_intentos()
+
+        for i in range(1, maximo + 1):
+            db.registrar_intento_fallido("jefe")
+        comprobar(f"Sin bloqueo hasta llegar al máximo ({maximo} intentos)",
+                  db.segundos_de_bloqueo("jefe") == 0)
+
+        db.registrar_intento_fallido("jefe")
+        primera_espera = db.segundos_de_bloqueo("jefe")
+        comprobar(f"Un intento de más sí bloquea (~30 s, dio {primera_espera})",
+                  25 <= primera_espera <= 30)
+
+        db.registrar_intento_fallido("jefe")
+        segunda_espera = db.segundos_de_bloqueo("jefe")
+        comprobar(f"El siguiente intento dobla la espera (~60 s, dio {segunda_espera})",
+                  55 <= segunda_espera <= 60)
+
+        # El punto entero del cambio: antes esto vivía en session_state, y
+        # "recargar la página" (una `AppTest`/sesión nueva) lo reiniciaba.
+        # Aquí no hay sesión de por medio: es una consulta a la base.
+        comprobar("El bloqueo no depende de ninguna sesión abierta",
+                  db.segundos_de_bloqueo("jefe") > 0)
+
+        for _ in range(maximo + 1):
+            db.registrar_intento_fallido("nadie-existe")
+        espera_inexistente = db.segundos_de_bloqueo("nadie-existe")
+        comprobar(
+            "Un usuario que NO existe se bloquea igual que uno que sí "
+            "(si no, el tiempo de espera delataría cuáles existen)",
+            espera_inexistente > 0)
+
+        comprobar("Normaliza mayúsculas y espacios a la misma llave",
+                  db.segundos_de_bloqueo("  JEFE  ") == db.segundos_de_bloqueo("jefe"))
+
+        db.limpiar_intentos("jefe")
+        comprobar("limpiar_intentos borra el bloqueo",
+                  db.segundos_de_bloqueo("jefe") == 0)
+        db.limpiar_intentos("nadie-existe")
 
         print("\n--- Exportación con la estructura de la hoja del taller ---")
         libro = exportar.libro_original()

@@ -13,12 +13,14 @@ from __future__ import annotations
 
 import random
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import streamlit as st
 
 import arranque
 import auth
+import config
 import db
 import migraciones
 import styles
@@ -37,9 +39,9 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Tras este número de intentos fallidos se bloquea el formulario un momento.
-# No es una defensa fuerte, solo evita el tanteo a ciegas.
-MAX_INTENTOS = 5
+# El límite de intentos vive en config.max_intentos() y en la tabla
+# `intentos_acceso` (db.py), no aquí: tiene que sobrevivir a que alguien
+# recargue la página, y una constante en session_state no lo hace.
 
 # --- Fondo animado de la pantalla de acceso ---
 NEON = "#38e8ff"
@@ -232,6 +234,13 @@ def usuario_actual() -> dict | None:
     return st.session_state.get("usuario")
 
 
+def _mensaje_espera(segundos: int) -> str:
+    """Texto del aviso de bloqueo, en minutos redondeados hacia arriba."""
+    minutos = -(-segundos // 60)  # división hacia arriba, sin importar math
+    plural = "un minuto" if minutos == 1 else f"{minutos} minutos"
+    return f"Demasiados intentos seguidos. Espera {plural} y vuelve a intentar."
+
+
 def pantalla_login() -> None:
     """Pantalla previa: sin autenticarse no se llega a nada más."""
     _fondo_animado()
@@ -253,35 +262,48 @@ def pantalla_login() -> None:
             unsafe_allow_html=True,
         )
 
-        intentos = st.session_state.get("intentos_fallidos", 0)
-        if intentos >= MAX_INTENTOS:
-            st.error(
-                f"Demasiados intentos fallidos ({intentos}). "
-                "Recarga la página para volver a intentar."
-            )
-            return
-
         with st.form("login"):
             usuario = st.text_input("Usuario")
             password = st.text_input("Contraseña", type="password")
             entrar = st.form_submit_button("Entrar", width="stretch")
 
-        if entrar:
-            if not usuario or not password:
-                st.warning("Escribe tu usuario y tu contraseña.")
-                return
+        if not entrar:
+            return
 
-            with db.conectar() as conexion:
-                datos = auth.autenticar(conexion, usuario, password)
+        if not usuario or not password:
+            st.warning("Escribe tu usuario y tu contraseña.")
+            return
 
-            if datos:
-                st.session_state.usuario = datos
-                st.session_state.intentos_fallidos = 0
-                st.rerun()
+        # El límite se consulta por el nombre tecleado, exista o no: si solo
+        # se consultara para usuarios reales, la espera misma delataría
+        # cuáles sí existen — lo mismo que el mensaje único de más abajo ya
+        # evita. Vive en la base, no en `session_state`, para que recargar la
+        # página no lo reinicie.
+        espera = db.segundos_de_bloqueo(usuario)
+        if espera:
+            st.error(_mensaje_espera(espera))
+            return
+
+        with db.conectar() as conexion:
+            datos = auth.autenticar(conexion, usuario, password)
+
+        if datos:
+            db.limpiar_intentos(usuario)
+            st.session_state.usuario = datos
+            st.rerun()
+        else:
+            db.registrar_intento_fallido(usuario)
+            # Se vuelve a consultar de inmediato: si este intento fue el que
+            # cruzó el máximo, hay que avisarlo AHORA, no dejar que la
+            # persona lo descubra hasta el siguiente intento (que además
+            # gastaría un envío de más contra el límite).
+            espera = db.segundos_de_bloqueo(usuario)
+            if espera:
+                st.error(_mensaje_espera(espera))
             else:
-                st.session_state.intentos_fallidos = intentos + 1
-                # Mensaje único a propósito: distinguir "no existe el usuario"
-                # de "contraseña incorrecta" revelaría qué usuarios existen.
+                # Mensaje único a propósito: distinguir "no existe el
+                # usuario" de "contraseña incorrecta" revelaría qué usuarios
+                # existen.
                 st.error("Usuario o contraseña incorrectos.")
 
 
@@ -289,6 +311,41 @@ def cerrar_sesion() -> None:
     """Limpia la sesión por completo."""
     for clave in list(st.session_state.keys()):
         del st.session_state[clave]
+
+
+def _sesion_vigente() -> bool:
+    """
+    Aplica los dos límites de sesión: inactividad y duración absoluta.
+
+    `st.session_state` no expira sola —vive mientras viva la pestaña del
+    navegador—, así que sin esto una sesión abierta se queda autenticada
+    indefinidamente. El alcance es el que es: cubre "se quedó la pestaña
+    abierta" (la tablet del taller, siempre encendida), no robo de
+    credenciales — aquí no hay ningún token que alguien pueda robar.
+
+    Streamlit reejecuta el script completo en cada interacción, así que
+    refrescar `ultima_actividad` en cada llamada no cuesta una consulta
+    aparte: es solo leer y escribir `session_state`.
+    """
+    ahora = datetime.now(timezone.utc)
+    inicio = st.session_state.get("inicio_sesion")
+    ultima = st.session_state.get("ultima_actividad")
+
+    if inicio is None or ultima is None:
+        # Primera vuelta de esta sesión (login recién hecho): se cuenta a
+        # partir de ahora.
+        st.session_state.inicio_sesion = ahora
+        st.session_state.ultima_actividad = ahora
+        return True
+
+    inactiva = ahora - ultima > timedelta(minutes=config.minutos_inactividad())
+    vencida = ahora - inicio > timedelta(hours=config.horas_sesion())
+    if inactiva or vencida:
+        cerrar_sesion()
+        return False
+
+    st.session_state.ultima_actividad = ahora
+    return True
 
 
 def pantalla_cambio_obligatorio(usuario: dict) -> None:
@@ -406,6 +463,11 @@ def main() -> None:
 
     if usuario.get("debe_cambiar_password"):
         pantalla_cambio_obligatorio(usuario)
+        return
+
+    if not _sesion_vigente():
+        st.info("Tu sesión venció por inactividad. Vuelve a entrar.")
+        pantalla_login()
         return
 
     barra_lateral(usuario)
