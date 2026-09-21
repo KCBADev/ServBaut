@@ -1,0 +1,45 @@
+# Servicio Bautista — orquestación local/servidor con Docker Compose.
+#
+# `docker compose up -d` levanta la app con su volumen de datos. Pensado
+# tanto para probar la imagen en cualquier máquina con Docker como para el
+# servidor real: lo único que cambia entre ambos es qué hay delante (nada,
+# en local; Caddy con TLS, en el servidor — ver el README para ese paso).
+
+services:
+  app:
+    build: .
+    ports:
+      - "8501:8501"
+    volumes:
+      # Nombrado y no una carpeta del host: sobrevive a `docker compose down`
+      # (solo `down -v` lo borra) y no depende de rutas del sistema operativo
+      # anfitrión, que en Windows/Linux/Mac se escriben distinto.
+      - taller-datos:/datos
+    environment:
+      # Overrides específicos del contenedor. Deliberadamente NO se tocan en
+      # `.streamlit/config.toml`: ese archivo lo sigue usando tal cual la
+      # computadora del taller (ahí `runOnSave=true` sí tiene sentido; en un
+      # contenedor con el código inmutable, no). Los valores de aquí ganan
+      # sobre los del archivo — ese es el orden de precedencia de Streamlit.
+      STREAMLIT_SERVER_RUN_ON_SAVE: "false"
+      STREAMLIT_CLIENT_SHOW_ERROR_DETAILS: "none"
+      STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION: "true"
+      # Nunca "false": en varias versiones de Streamlit desactivar CORS
+      # desactiva de paso la protección XSRF.
+      STREAMLIT_SERVER_ENABLE_CORS: "true"
+      # El proyecto no usa `st.file_uploader` en ningún lado: 1 MB cierra esa
+      # superficie por completo en vez de dejar el máximo por omisión.
+      STREAMLIT_SERVER_MAX_UPLOAD_SIZE: "1"
+      # TALLER_ADMIN_PASSWORD: defínela (en un archivo .env junto a este, que
+      # Compose carga solo, o como secreto del servicio) antes del PRIMER
+      # arranque. Si no la defines, se genera una al azar y queda en
+      # /datos/primera-clave.txt dentro del volumen — nunca en este archivo
+      # ni en ningún registro.
+    # Chromium necesita más que los 64 MB de /dev/shm que Docker da por
+    # omisión, o revienta al imprimir el primer PDF. Esta es la forma
+    # correcta de dárselos — nunca "--no-sandbox".
+    shm_size: "512mb"
+    restart: unless-stopped
+
+volumes:
+  taller-datos:

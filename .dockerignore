@@ -1,0 +1,77 @@
+# .dockerignore — Servicio Bautista.
+#
+# Esto es un control de SEGURIDAD, no una optimización de tamaño de imagen.
+# `.gitignore` no protege el contexto de build: `docker build` empaqueta
+# TODO lo que haya en esta carpeta salvo lo que se excluya aquí, y las
+# imágenes resultantes se suben a registries. Sin este archivo, un build
+# hecho por copia local (en vez de por `git clone`) metería el Excel con los
+# datos reales de 58 clientes y `taller.db` dentro de la imagen.
+
+# Control de versiones y entorno de desarrollo
+.git/
+.github/
+.claude/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Base de datos y sus archivos auxiliares de WAL — nunca deben entrar a una
+# imagen: la base vive en el volumen, no en el árbol de código.
+*.db
+*.db-wal
+*.db-shm
+*.db-journal
+*.respaldo-*
+db_backup/
+datos/
+
+# Datos de clientes en hoja de cálculo — el motivo de existir de este
+# archivo. `ejemplo_taller.xlsx` es la excepción: datos inventados, sin
+# ningún dato real, pensada para poder probar el cargador.
+*.xlsx
+*.xls
+!ejemplo_taller.xlsx
+~$*
+
+# Secretos y variables de entorno
+.streamlit/secrets.toml
+.env
+.env.*
+*.cfg
+config.ini
+
+# Bitácoras y salidas generadas — se regeneran, no son código fuente.
+*.log
+analisis/salidas/
+exports/
+output/
+outputs/
+reports/
+figures/
+plots/
+
+# Material del lienzo de diseño que no usa el código en tiempo de
+# ejecución. Lo único que abre `nota_pdf.py`/`diagnostico_pdf.py` es
+# `Plantillas/Work_order/export/*-plantilla.html`.
+Plantillas/*/uploads/
+Plantillas/*/screenshots/
+Plantillas/*/.thumbnail
+Plantillas/*/assets/
+Plantillas/*/_ds/
+Plantillas/*/*.js
+Plantillas/*/*.dc.html
+Plantillas/Work_order/Orden de Trabajo - Servicio Bautista.html
+Luxury automotive work order.pdf
+orden-trabajo-plantilla (1).html
+
+# Docs con capturas de pantalla: no hacen falta para correr la app.
+docs/img/
+
+# Editores, IDEs y sistema operativo
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

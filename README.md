@@ -180,8 +180,11 @@ toca el archivo real.
 
 ```
 app.py                  Entrada de Streamlit: login y navegación
+config.py               Configuración por entorno (rutas, límites)
 db.py                   Capa de acceso a datos — todo el SQL vive aquí
 auth.py                 Hash y verificación de contraseñas
+arranque.py             Arranque autónomo: crea la base y el primer admin
+migraciones.py          Versionado del esquema (PRAGMA user_version)
 nota_pdf.py             Genera la nota de servicio imprimible en PDF
 exportar.py             Vuelca la base a CSV, Excel, SQL y al formato de la hoja del taller
 styles.py               Paleta y hoja de estilo de toda la interfaz
@@ -189,6 +192,7 @@ esquema.sql             Definición de la base
 cargar_datos.py         Carga inicial desde el Excel (idempotente)
 generar_ejemplo.py      Genera ejemplo_taller.xlsx con datos inventados
 restablecer_clave.py    Restablece la contraseña de un usuario desde la terminal
+respaldos.py            Respaldos automáticos comprimidos y verificados
 paginas/                Una pantalla por módulo
 paginas/descargas.py    Envoltorios cacheados de los archivos descargables
 analisis/               Scripts de análisis, independientes de la app
@@ -196,6 +200,7 @@ historico/              Migraciones ya aplicadas; no hace falta correrlas
 explorar_excel.py       Inspección del Excel de origen (Paso 0)
 verificar_datos.py      Verificación de integridad del Excel (Paso 0)
 pruebas_*.py            Suites de pruebas
+Dockerfile, compose.yaml, docker/   Imagen y orquestación para desplegar
 ```
 
 ## Decisiones de diseño
@@ -282,13 +287,51 @@ Otras variables, todas opcionales: `TALLER_RESPALDOS` (carpeta de respaldos),
 `TALLER_HORAS_SESION`, `TALLER_MAX_INTENTOS`, `TALLER_ADMIN_USUARIO` y
 `TALLER_ADMIN_PASSWORD`.
 
+## Despliegue
+
+La app también corre en Docker, para un servidor accesible desde cualquier
+red (no solo el Wi-Fi del taller):
+
+```powershell
+docker compose up -d --build
+```
+
+Con eso: construye la imagen (Chromium incluido, vía la imagen oficial de
+Playwright — no hace falta ningún paso de instalación aparte), crea un
+volumen para los datos y levanta la app en `http://localhost:8501`. La
+primera vez que arranca sin una base existente, la crea sola y da de alta un
+administrador con una contraseña provisional (ver «Si saltas el paso 1»,
+arriba) — igual que corriendo la app suelta.
+
+Variables que sí importa definir antes del primer arranque, como
+`TALLER_ADMIN_PASSWORD` (para no depender de leer `primera-clave.txt` dentro
+del volumen) o `TALLER_MINUTOS_INACTIVIDAD`, se ponen en un archivo `.env`
+junto a `compose.yaml` — Compose lo carga solo — o como secretos del
+servicio en el hosting que elijas.
+
+**Esto es la mitad del camino a "accesible desde cualquier red", no todo.**
+El contenedor expuesto tal cual sigue siendo HTTP sin cifrar en el puerto
+8501: hace falta un servidor donde correrlo (Oracle Cloud Always Free y
+Azure for Students son gratuitos; ver la discusión del proyecto para el
+porqué) y un proxy inverso delante con TLS (Caddy es sencillo: certificado
+automático, solo hay que dejarlo pasar los *websockets* de
+`/_stcore/stream`). El **8501 nunca debe exponerse directo a internet** —
+solo 80/443, con el proxy en medio.
+
+`compose.yaml` fija `shm_size: 512mb`: Chromium revienta con los 64 MB de
+`/dev/shm` que Docker da por omisión al imprimir el primer PDF. Esa es la
+manera correcta de dárselos — nunca `--no-sandbox`, que desactiva un
+aislamiento de seguridad de Chromium para evitar el síntoma en vez de
+arreglar la causa.
+
 ## Seguridad
 
 `.streamlit/config.toml` tiene `address = "0.0.0.0"`: el servidor escucha en
 toda interfaz de red, para poder entrar desde un celular o una tablet en el
-mismo Wi-Fi del taller (`http://<IP local de la computadora>:8501`). Sigue
-siendo HTTP sin cifrar, así que esto vale **solo dentro de la red del
-taller** — nunca abrir el puerto hacia internet (por ejemplo con
+mismo Wi-Fi del taller (`http://<IP local de la computadora>:8501`), o desde
+cualquier interfaz dentro de un contenedor. Sigue siendo HTTP sin cifrar, así
+que esto vale **solo dentro de una red de confianza, o detrás de un proxy con
+TLS** — nunca el puerto 8501 hacia internet directo (por ejemplo con
 port-forwarding en el router), porque los datos de clientes y el login
 viajarían sin cifrar a la vista de cualquiera. Si el taller alguna vez no
 necesita el acceso por Wi-Fi, lo más seguro es volver `address` a

@@ -1,0 +1,10 @@
+# .gitattributes — Servicio Bautista.
+#
+# Solo lo estrictamente necesario: forzar salto de línea LF en los scripts
+# que se ejecutan directamente en Linux (dentro del contenedor). Un shebang
+# con retorno de carro (`#!/bin/sh\r`) falla con "bad interpreter" al
+# arrancar. Con `core.autocrlf=true` en Windows esto ya sale bien por
+# omisión —se comprobó a mano—, pero no hay que depender de que todo el
+# mundo tenga esa configuración: esta regla lo deja explícito y a prueba de
+# quien clone con otro ajuste.
+docker/*.sh text eol=lf
