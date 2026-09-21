@@ -21,6 +21,7 @@ from pathlib import Path
 
 import auth
 import db
+import migraciones
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
@@ -48,6 +49,12 @@ def rechaza(descripcion: str, conexion: sqlite3.Connection, sql: str,
         comprobar(descripcion, True)
     else:
         comprobar(descripcion, False)
+
+
+def _version_de(ruta: Path) -> int:
+    """Lee `PRAGMA user_version` de una base cerrada."""
+    with db.conectar(ruta) as conexion:
+        return migraciones.version_actual(conexion)
 
 
 def sembrar(conexion: sqlite3.Connection) -> None:
@@ -415,6 +422,42 @@ def main() -> None:
             comprobar("Ida y vuelta sin pérdida",
                       db.pesos_a_centavos(db.centavos_a_pesos(38114650)) == 38114650)
             comprobar("Formato legible", db.formato_pesos(38114650) == "$381,146.50")
+
+            print("\n--- Versionado del esquema ---")
+            # El invariante que de verdad importa: una base recién creada desde
+            # `esquema.sql` tiene que verse como VERSION_OBJETIVO. Si alguien
+            # agrega una tabla al esquema y olvida su `Paso` en migraciones.py,
+            # o al revés, esta prueba lo caza antes de que una base nueva quede
+            # sellada con un número que no corresponde a su forma.
+            comprobar("`esquema.sql` produce la forma de VERSION_OBJETIVO",
+                      migraciones.version_detectada(c)
+                      == migraciones.VERSION_OBJETIVO)
+
+            migraciones.sellar(c, 5)
+            comprobar("Sellar y volver a leer da el mismo número",
+                      migraciones.version_actual(c) == 5)
+            comprobar("Con la versión atrasada aparecen pasos pendientes",
+                      [p.version for p in migraciones.pendientes(c)] == [6, 7, 8])
+            migraciones.sellar(c, migraciones.VERSION_OBJETIVO)
+            comprobar("Al día no queda ningún paso pendiente",
+                      migraciones.pendientes(c) == [])
+
+            comprobar("Todos los pasos declaran guion o forma de aplicarse",
+                      all(p.aplicar is not None or p.guion
+                          for p in migraciones.PASOS[1:]))
+            comprobar("Las versiones de los pasos son consecutivas desde 1",
+                      [p.version for p in migraciones.PASOS]
+                      == list(range(1, len(migraciones.PASOS) + 1)))
+
+        with tempfile.TemporaryDirectory() as otra_carpeta:
+            desde_cero = Path(otra_carpeta) / "nueva.db"
+            hechos = migraciones.preparar(desde_cero)
+            comprobar("`preparar` crea la base si no existe", desde_cero.exists())
+            comprobar("Y la deja sellada en VERSION_OBJETIVO",
+                      _version_de(desde_cero) == migraciones.VERSION_OBJETIVO)
+            comprobar("Reporta lo que hizo", len(hechos) == 1)
+            comprobar("Llamarla de nuevo no hace nada",
+                      migraciones.preparar(desde_cero) == [])
 
     print()
     print("=" * 74)
