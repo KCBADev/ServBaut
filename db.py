@@ -153,6 +153,55 @@ def inicializar_esquema(ruta: Path | None = None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Respaldo
+#
+# Ni `Path.read_bytes()` ni `shutil.copy2` bastan para copiar una base en
+# modo WAL de forma confiable: ambos copian el archivo `.db` principal tal
+# cual está en disco, y las escrituras más recientes pueden seguir viviendo
+# solo en `taller.db-wal` sin haberse fusionado todavía — sobre todo si hay
+# otra sesión con una conexión abierta al mismo tiempo. `backup()` y
+# `serialize()` copian el estado LÓGICO de la base, el mismo que vería
+# cualquier lectura nueva: WAL incluido, sin necesidad de un checkpoint
+# manual antes de copiar.
+# ---------------------------------------------------------------------------
+
+def respaldar(destino: Path, ruta: Path | None = None) -> Path:
+    """
+    Copia la base completa y consistente a `destino` (que se crea o se
+    sobrescribe) y devuelve esa misma ruta.
+
+    Pensada para un script externo (`respaldos.py`) que corre por su cuenta,
+    no desde un hilo dentro del proceso de Streamlit: los reruns y reinicios
+    de Streamlit la volverían impredecible.
+    """
+    ruta = ruta or RUTA_DB
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    origen = sqlite3.connect(ruta)
+    copia = sqlite3.connect(destino)
+    try:
+        origen.backup(copia)
+    finally:
+        copia.close()
+        origen.close()
+    return destino
+
+
+def bytes_respaldo(ruta: Path | None = None) -> bytes:
+    """
+    La base completa y consistente, como bytes — para el botón de descarga.
+
+    No hace falta pasar por un archivo temporal: `Connection.serialize()`
+    entrega directamente el contenido que tendría ese archivo.
+    """
+    ruta = ruta or RUTA_DB
+    origen = sqlite3.connect(ruta)
+    try:
+        return origen.serialize()
+    finally:
+        origen.close()
+
+
+# ---------------------------------------------------------------------------
 # Generación de identificadores
 # ---------------------------------------------------------------------------
 

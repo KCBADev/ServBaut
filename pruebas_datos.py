@@ -16,6 +16,7 @@ import io
 import sqlite3
 import sys
 import tempfile
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
@@ -26,6 +27,7 @@ import config
 import db
 import exportar
 import nota_pdf
+import respaldos
 from explorar_excel import detectar_bloques, extraer_tabla
 
 if hasattr(sys.stdout, "reconfigure"):
@@ -683,6 +685,89 @@ def main() -> None:
             comprobar("Tampoco deja quitarle el rol", False)
         except ValueError:
             comprobar("Tampoco deja quitarle el rol", True)
+
+        print("\n--- Respaldo: db.respaldar / db.bytes_respaldo ---")
+        with tempfile.TemporaryDirectory() as carpeta_resp:
+            destino = Path(carpeta_resp) / "copia.db"
+            ruta_devuelta = db.respaldar(destino)
+            comprobar("db.respaldar devuelve la misma ruta que recibió",
+                      ruta_devuelta == destino)
+            comprobar("El archivo de respaldo existe y no está vacío",
+                      destino.exists() and destino.stat().st_size > 0)
+
+            con_copia = sqlite3.connect(destino)
+            try:
+                integro = con_copia.execute(
+                    "PRAGMA integrity_check").fetchone()[0] == "ok"
+            finally:
+                con_copia.close()
+            comprobar("El respaldo pasa integrity_check", integro)
+
+            comprobar("El respaldo cuadra igual que la base original",
+                      db.verificar_cuadre(destino) == db.verificar_cuadre())
+
+            datos = db.bytes_respaldo()
+            comprobar("bytes_respaldo empieza con el encabezado de SQLite",
+                      datos[:16] == b"SQLite format 3\x00")
+            comprobar("bytes_respaldo pesa lo mismo que el archivo de respaldar",
+                      len(datos) == destino.stat().st_size)
+
+        print("\n--- respaldos.py: crear y verificar ---")
+        with tempfile.TemporaryDirectory() as carpeta_resp:
+            carpeta_resp = Path(carpeta_resp)
+            archivo = respaldos.crear(carpeta_resp)
+            comprobar("crear() deja el archivo dentro de la carpeta pedida",
+                      archivo.parent == carpeta_resp)
+            comprobar("El nombre sigue el patrón esperado (fecha reconocible)",
+                      respaldos._fecha_de_nombre(archivo) is not None)
+            comprobar("verificar() confirma que un respaldo recién hecho es "
+                      "de fiar", respaldos.verificar(archivo))
+
+            corrupto = carpeta_resp / "corrupto.db.gz"
+            corrupto.write_bytes(b"esto no es un respaldo valido")
+            comprobar("verificar() da False (no truena) ante un archivo "
+                      "corrupto", respaldos.verificar(corrupto) is False)
+
+            comprobar("_fecha_de_nombre ignora un archivo que no sigue "
+                      "el patrón",
+                      respaldos._fecha_de_nombre(corrupto) is None)
+
+        print("\n--- respaldos.py: rotar ---")
+        with tempfile.TemporaryDirectory() as carpeta_resp:
+            carpeta_resp = Path(carpeta_resp)
+            # Nombres fabricados en vez de crear() de verdad espaciado en el
+            # tiempo: la rotación decide por la fecha del NOMBRE, así que no
+            # hace falta esperar semanas de reloj para probarla.
+            base_original = respaldos.crear(carpeta_resp)
+            contenido = base_original.read_bytes()
+            base_original.unlink()
+
+            fechas = [datetime(2026, 1, 1) + timedelta(days=2 * i)
+                      for i in range(20)]  # 20 respaldos, cada 2 días
+            for fecha in fechas:
+                nombre = fecha.strftime(respaldos.PATRON_NOMBRE)
+                (carpeta_resp / nombre).write_bytes(contenido)
+
+            comprobar("Los 20 respaldos fabricados quedaron en la carpeta",
+                      len(list(carpeta_resp.glob("taller-*.db.gz"))) == 20)
+
+            borrados = respaldos.rotar(carpeta_resp, diarios=7, semanales=4)
+            restantes = sorted(carpeta_resp.glob("taller-*.db.gz"))
+            comprobar(f"Borra los que sobran y no más de diarios+semanales "
+                      f"(quedaron {len(restantes)})",
+                      len(restantes) <= 11 and len(borrados) == 20 - len(restantes))
+
+            mas_recientes = sorted(
+                (carpeta_resp / f.strftime(respaldos.PATRON_NOMBRE)
+                 for f in fechas), reverse=True)[:7]
+            comprobar("Los 7 respaldos más recientes sobreviven completos",
+                      all(r in restantes for r in mas_recientes))
+
+            intruso = carpeta_resp / "algo-que-alguien-dejo.db.gz"
+            intruso.write_bytes(b"no es un respaldo de este script")
+            respaldos.rotar(carpeta_resp, diarios=1, semanales=0)
+            comprobar("Un archivo que no sigue el patrón de nombre no se "
+                      "toca al rotar", intruso.exists())
 
         print("\n--- Límite de intentos de acceso ---")
         db.limpiar_intentos("jefe")

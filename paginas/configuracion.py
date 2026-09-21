@@ -325,7 +325,13 @@ def _respaldo() -> None:
 
     st.download_button(
         "Descargar respaldo de la base",
-        data=db.RUTA_DB.read_bytes(),
+        # `db.bytes_respaldo()` y no `db.RUTA_DB.read_bytes()`: en modo WAL,
+        # leer el archivo tal cual puede perderse escrituras confirmadas que
+        # todavía viven solo en `taller.db-wal` sin fusionarse. Sin caché a
+        # propósito: la base pesa unos cientos de KB, copiarla toma
+        # milisegundos, y cachearla por la fecha de modificación del archivo
+        # reintroduciría el mismo riesgo que esto corrige.
+        data=db.bytes_respaldo(),
         file_name=f"taller-{datetime.now():%Y%m%d-%H%M}.db",
         mime="application/octet-stream",
         help="Guárdalo fuera de esta computadora.",

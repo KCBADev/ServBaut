@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.63-FF4B4B)
-![Pruebas](https://img.shields.io/badge/pruebas-226%20pasando-2C7A7B)
+![Pruebas](https://img.shields.io/badge/pruebas-332%20pasando-2C7A7B)
 
 Aplicación en Streamlit para administrar el taller: clientes, catálogo de
 conceptos, notas de servicio, cotizaciones y un tablero con el histórico. Los
@@ -25,7 +25,7 @@ completo, decisión por decisión, está en [`ARCHITECTURE.md`](ARCHITECTURE.md)
 
 ## En pocas palabras
 
-- **268 pruebas automatizadas** en tres suites independientes — esquema, capa
+- **332 pruebas automatizadas** en tres suites independientes — esquema, capa
   de datos y pantallas — corriendo sobre bases temporales, nunca sobre los
   datos reales del taller.
 - **La orden de trabajo se imprime con Chromium sin cabeza**, no con una
@@ -126,6 +126,27 @@ contraseña provisional. Esa contraseña queda escrita en
 `primera-clave.txt`, junto a `taller.db`, nunca en pantalla ni en ningún
 registro; la cuenta pide cambiarla en el primer inicio de sesión.
 
+## Respaldos
+
+El botón "Descargar respaldo de la base" en Configuración sirve para un
+respaldo puntual, pero depende de que alguien se acuerde de darle clic, y se
+queda en el mismo disco que la base: si falla la máquina, se pierden los dos.
+
+`respaldos.py` es la otra mitad: crea un respaldo comprimido con fecha,
+**lo verifica de verdad** (lo descomprime, revisa que SQLite lo lea sin
+corrupción y que los totales cuadren) y rota los viejos (7 diarios + 4
+semanales, por omisión).
+
+```powershell
+.venv\Scripts\python.exe respaldos.py
+```
+
+Pensado para una tarea programada (Task Scheduler, cron, systemd timer), no
+para correr desde la app. No saca los respaldos de la computadora por su
+cuenta: eso es trabajo de algo como `rclone` hacia Drive/OneDrive, corrido
+después, sobre la carpeta que este script deja lista (`TALLER_RESPALDOS`, o
+`respaldos/` junto a la base por omisión).
+
 ## Análisis
 
 Scripts independientes de la app. Guardan CSV y PNG en `analisis/salidas/`
@@ -146,12 +167,14 @@ rentabilidad.
 ## Pruebas
 
 ```powershell
-.venv\Scripts\python.exe pruebas_esquema.py   # 37 — garantías de la base
-.venv\Scripts\python.exe pruebas_datos.py     # 118 — capa de acceso a datos
-.venv\Scripts\python.exe pruebas_app.py       # 62 — pantallas, con AppTest
+.venv\Scripts\python.exe pruebas_esquema.py   # 53 — garantías de la base
+.venv\Scripts\python.exe pruebas_datos.py     # 167 — capa de acceso a datos
+.venv\Scripts\python.exe pruebas_app.py       # 112 — pantallas, con AppTest
 ```
 
-Las dos primeras corren sobre una base temporal y no tocan `taller.db`.
+Las tres corren sobre una base temporal — `pruebas_app.py` sobre una copia
+consistente de `taller.db` (`Connection.backup()`, WAL incluido) — y ninguna
+toca el archivo real.
 
 ## Estructura
 
