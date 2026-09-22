@@ -1,13 +1,15 @@
 # Servicio Bautista — App de administración del taller
 
+[![Pruebas](https://github.com/KCBADev/ServBaut/actions/workflows/pruebas.yml/badge.svg)](https://github.com/KCBADev/ServBaut/actions/workflows/pruebas.yml)
 ![Python](https://img.shields.io/badge/Python-3.12-blue)
 ![Streamlit](https://img.shields.io/badge/Streamlit-1.63-FF4B4B)
-![Pruebas](https://img.shields.io/badge/pruebas-332%20pasando-2C7A7B)
+![Docker](https://img.shields.io/badge/Docker-listo-2496ED)
+![Licencia](https://img.shields.io/badge/licencia-MIT-lightgrey)
 
 Aplicación en Streamlit para administrar el taller: clientes, catálogo de
-conceptos, notas de servicio, cotizaciones y un tablero con el histórico. Los
-datos viven en SQLite (`taller.db`); el Excel original es únicamente la carga
-inicial y la app nunca lo escribe.
+conceptos, notas de servicio, cotizaciones, diagnósticos con escáner y un
+tablero con el histórico. Los datos viven en SQLite (`taller.db`); el Excel
+original es únicamente la carga inicial y la app nunca lo escribe.
 
 Construida a la medida de un taller mecánico real, para reemplazar 62 notas de
 servicio y 58 clientes que hasta entonces vivían en una hoja de Excel — sin
@@ -15,13 +17,27 @@ perder ni un peso del histórico ($381,146.50 exactos) ni la trazabilidad de
 las notas en papel que el taller sigue archivando. El razonamiento técnico
 completo, decisión por decisión, está en [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
+**Pruébala en un comando** (requiere [Docker](https://www.docker.com/)):
+
+```bash
+git clone https://github.com/KCBADev/ServBaut.git && cd ServBaut
+docker compose up -d --build
+```
+
+Abre <http://localhost:8501> — la app crea su propia base y un administrador
+provisional sola, sin ningún paso manual. La contraseña queda en
+`primera-clave.txt`, dentro del volumen de datos (nunca en pantalla ni en un
+registro): `docker compose exec app cat /datos/primera-clave.txt`.
+
 ## Capturas
 
 ![Dashboard](docs/img/dashboard.png)
 
-| Crear nota | Cotizaciones |
+| Notas de servicio | Diagnósticos con escáner |
 |---|---|
-| ![Crear nota](docs/img/crear_nota.png) | ![Cotizaciones](docs/img/cotizaciones.png) |
+| ![Notas de servicio](docs/img/notas.png) | ![Diagnósticos con escáner](docs/img/diagnosticos.png) |
+
+*(Datos de muestra generados a propósito para estas capturas — nunca los reales del taller.)*
 
 ## En pocas palabras
 
@@ -264,6 +280,30 @@ sus tablas normales — es lo que permite que, al convertirla, «Crear nota» ya
 los tenga en sus listas. `eliminar_nota` revierte a Pendiente cualquier
 cotización que apunte a la nota borrada, en vez de bloquear el borrado o dejar
 una referencia rota.
+
+**El botón de respaldo tenía un bug de corrección, no solo de conveniencia.**
+Leía el archivo `.db` tal cual con `Path.read_bytes()` — pero en modo WAL las
+escrituras más recientes pueden seguir viviendo solo en `taller.db-wal` sin
+haberse fusionado, sobre todo con otra sesión conectada al mismo tiempo. El
+respaldo descargado podía venir sin las últimas notas confirmadas, en
+silencio. `db.respaldar()` usa `Connection.backup()` en su lugar: copia el
+estado lógico de la base, WAL incluido, sin necesidad de un checkpoint manual.
+
+**El versionado del esquema solo automatiza hacia adelante, a propósito.**
+`migraciones.py` trae ocho migraciones históricas (v2–v8) y las deja
+deliberadamente manuales: existió una sola base a la que aplicárselas y ya
+pasó por todas. Automatizar reconstrucciones de tablas que nunca se van a
+volver a ejecutar era riesgo sin beneficio. De la v9 en adelante sí se
+automatizan solas, porque ahí sí puede haber varias bases (la del taller, la
+de un servidor) que haya que poner al día sin entrar a mano a cada una.
+
+**El límite de intentos de acceso no puede delatar qué usuarios existen.**
+`auth.autenticar` ya usaba un mensaje único para no distinguir "no existe el
+usuario" de "contraseña incorrecta". Mover el límite de intentos de
+`session_state` a una tabla persistente estuvo a punto de reabrir esa misma
+fuga por otra puerta: si solo se contaran los intentos de usuarios reales, el
+tiempo de espera delataría cuáles sí existen. Se cuenta igual para cualquier
+nombre tecleado, exista o no — verificado con una prueba dedicada.
 
 **La base vive fuera de la carpeta del proyecto.** Antes estaba junto al
 código en C:, hasta que ese disco se quedó con apenas 115 MB libres y una

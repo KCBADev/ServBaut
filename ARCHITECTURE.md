@@ -13,9 +13,41 @@ clientes, vehículos y notas de servicio, cobrar con IVA, imprimir la orden de
 trabajo y ver un tablero de negocio — sin perder ni un peso del histórico
 ($381,146.50 exactos) ni la trazabilidad de las notas en papel.
 
-Es una aplicación de un solo usuario administrador, en una sola computadora,
-sin necesidad de servidor remoto ni de soportar escrituras concurrentes de
-verdad. Varias decisiones de abajo solo tienen sentido en ese contexto.
+Nació como una aplicación de un solo usuario administrador, en una sola
+computadora, sin necesidad de servidor remoto ni de soportar escrituras
+concurrentes de verdad — varias decisiones de abajo solo tienen sentido en ese
+contexto original. Desde entonces se le agregó lo necesario para correr en un
+servidor (`Dockerfile`, arranque automático, límite de acceso persistido,
+respaldos verificados) sin abandonar esa base: SQLite y una sola computadora
+escribiendo siguen siendo correctos para el volumen real de un taller; lo que
+cambió es *dónde* vive esa computadora, no la arquitectura de datos.
+
+```mermaid
+flowchart TB
+    subgraph Cliente["Cualquier dispositivo"]
+        nav["Navegador"]
+    end
+
+    subgraph Servidor["Contenedor Docker"]
+        st["app.py — Streamlit\nlogin · sesión · navegación"]
+        db["db.py — capa de datos\nTODO el SQL vive aquí"]
+        pw["nota_pdf.py / diagnostico_pdf.py\nChromium vía Playwright"]
+        arr["arranque.py + migraciones.py\ncrea/actualiza la base sola"]
+    end
+
+    vol[("/datos\nvolumen persistente")]
+
+    nav <-->|"HTTPS (proxy con TLS delante)"| st
+    st --> db
+    st --> pw
+    st -.->|primer arranque| arr
+    arr --> db
+    db <--> vol
+    pw -.->|PDF| st
+```
+
+La base de datos y los respaldos viven en el volumen, fuera del árbol de
+código — la imagen se puede reconstruir sin arrastrar datos.
 
 ## Stack y por qué
 
@@ -31,18 +63,23 @@ verdad. Varias decisiones de abajo solo tienen sentido en ese contexto.
 ## Estructura del código
 
 ```
-app.py                Login y navegación — el único punto de entrada
-db.py                 TODO el SQL del proyecto vive aquí (1,784 líneas, 77 funciones)
+app.py                Login, sesión y navegación — el único punto de entrada
+config.py             Configuración por entorno: rutas, límites, secretos
+db.py                 TODO el SQL del proyecto vive aquí (2,468 líneas, 106 funciones)
 auth.py               Hash y verificación de contraseñas
+arranque.py           Crea la base y el primer administrador sin intervención manual
+migraciones.py        Versionado del esquema (PRAGMA user_version)
 nota_pdf.py           Arma el HTML de la orden/cotización y lo imprime con Chromium
 diagnostico_pdf.py    Arma el HTML del reporte de diagnóstico (agrupado por sistema) e imprime igual
 exportar.py           Vuelca la base a CSV / Excel / SQL para análisis externo
+respaldos.py          Respaldos automáticos comprimidos y verificados
 styles.py             Paleta y hoja de estilo de toda la interfaz, en un solo lugar
 esquema.sql           Definición completa: tablas, triggers, índices, CHECKs
 paginas/              12 pantallas, una por módulo — cada una importa db.py, nunca escribe SQL
 paginas/descargas.py  Envoltorios cacheados de los archivos descargables (ver más abajo)
 historico/            Migraciones ya aplicadas; quedan como registro, no se vuelven a correr
-pruebas_*.py          3 suites independientes — 268 pruebas en total
+pruebas_*.py          3 suites independientes — 332 pruebas en total
+Dockerfile, compose.yaml, docker/   Imagen y orquestación para desplegar
 ```
 
 **Regla de una sola vía:** ninguna pantalla en `paginas/` ejecuta SQL directo.
