@@ -366,6 +366,12 @@ def _prueba_diagnosticos_interaccion() -> None:
             pdf = diagnostico_pdf.generar(folio)
             comprobar(f"El PDF se genera de verdad ({len(pdf)} bytes)",
                       len(pdf) > 10_000)
+            # Antes, aun con un solo código, las firmas y el slogan se iban
+            # solos a una segunda hoja (ver `_CSS_COMPACTO` en diagnostico_pdf).
+            hojas = int(re.search(rb"/Type\s*/Pages.*?/Count\s+(\d+)", pdf,
+                                  re.DOTALL).group(1))
+            comprobar(f"Un diagnóstico corto cabe en una sola hoja ({hojas})",
+                      hojas == 1)
 
         boton_otro = next(b for b in app.button if b.label == "Capturar otro diagnóstico")
         app = boton_otro.click().run()
@@ -384,6 +390,234 @@ def _prueba_diagnosticos_interaccion() -> None:
         comprobar("La fecha vuelve a hoy",
                   fecha_widget is not None and fecha_widget.value == date.today(),
                   str(fecha_widget.value if fecha_widget else None))
+    finally:
+        db.RUTA_DB = original_ruta
+        shutil.rmtree(carpeta, ignore_errors=True)
+
+
+def _prueba_cotizaciones_edicion_interaccion() -> None:
+    """
+    Ejercita de verdad los dos bugs reales reportados en «Cotizaciones»: la
+    pantalla roja genérica al guardar la cabecera o los renglones de una
+    cotización guardada (antes, cualquier error al guardar los renglones, o
+    uno que no fuera `ValueError` al guardar la cabecera, subía sin
+    capturar), y el botón nuevo para editar un renglón ya agregado sin
+    tener que borrarlo.
+
+    Corre sobre una base temporal aislada, mismo motivo que
+    `_prueba_diagnosticos_interaccion`.
+    """
+    print("\n--- Cotizaciones: editar cabecera y renglones "
+          "(base temporal aislada) ---")
+    original_ruta = db.RUTA_DB
+    carpeta = tempfile.mkdtemp(prefix="pruebas_cotizaciones_",
+                               dir=config.ruta_temporal())
+    db.RUTA_DB = Path(carpeta) / "prueba.db"
+    try:
+        db.inicializar_esquema()
+        db.sembrar_marcas()
+        with db.transaccion() as c:
+            c.execute("INSERT INTO categorias (nombre) VALUES ('Frenos')")
+            c.execute("INSERT INTO acciones (nombre) VALUES ('Reemplazo')")
+        id_cliente = db.crear_cliente("Cliente de prueba", "3312345678")
+        id_vehiculo = db.crear_vehiculo(id_cliente, "Jeep", "Patriot", 2020,
+                                        "Negro")
+        folio = db.crear_cotizacion(id_cliente, id_vehiculo, "2026-02-01", [
+            # Sin id_catalogo/id_producto a propósito: es la forma de los
+            # renglones importados del Excel histórico, y es justo lo que
+            # expuso un bug real al construir esta prueba (ver más abajo).
+            {"tipo_concepto": "Producto", "categoria": "Frenos", "accion": None,
+             "descripcion": "Balatas", "cantidad": 1,
+             "precio_unitario_centavos": 100000},
+            {"tipo_concepto": "Servicio", "categoria": "Frenos",
+             "accion": "Reemplazo", "descripcion": "Mano de obra",
+             "cantidad": 1, "precio_unitario_centavos": 50000},
+        ])
+
+        app = abrir_pagina("cotizaciones")
+        selector = next(sb for sb in app.selectbox
+                        if "Abrir una cotización" in (sb.label or ""))
+        app = selector.set_value(folio).run()
+        comprobar("Abrir la cotización en Editar no truena (el bug real de hoy)",
+                  not app.exception, sin_excepciones(app))
+        comprobar("Muestra la pestaña Editar",
+                  {"Detalle", "Editar"} <= {t.label for t in app.tabs},
+                  str([t.label for t in app.tabs]))
+
+        print("\n--- Guardar la cabecera con un error que no es ValueError "
+              "no debe tronar ---")
+        original_actualizar_cabecera = db.actualizar_cotizacion
+        db.actualizar_cotizacion = lambda *a, **k: (_ for _ in ()).throw(
+            RuntimeError("fallo simulado de la base"))
+        try:
+            boton_cabecera = next(
+                b for b in app.button if b.label == "Guardar cliente y vehículo")
+            app = boton_cabecera.click().run()
+        finally:
+            db.actualizar_cotizacion = original_actualizar_cabecera
+        comprobar("Un error que no es ValueError no tira la pantalla roja",
+                  not app.exception, sin_excepciones(app))
+        comprobar("Y muestra el error de forma legible",
+                  any("fallo simulado" in e.value for e in app.error),
+                  str([e.value for e in app.error]))
+
+        print("\n--- Guardar los renglones cuando algo falla no debe tronar ---")
+        # OJO: `app.session_state[clave] = {...}` para un `st.data_editor`
+        # solo sobrevive al `run()` INMEDIATO siguiente. Si ese `run()` se
+        # dispara aparte (p. ej. por otro `.click().run()` posterior),
+        # AppTest reconstruye el widget desde cero y el valor puesto a mano
+        # se pierde — hay que encolar el cambio de sesión Y el clic del
+        # botón ANTES de un único `run()` para que ambos lleguen juntos.
+        clave_editor = f"editor-cot-{folio}"
+        app.session_state[clave_editor] = {
+            "edited_rows": {0: {"Cantidad": 2}}, "added_rows": [],
+            "deleted_rows": [],
+        }
+        original_actualizar_partida = db.actualizar_cotizacion_partida
+        db.actualizar_cotizacion_partida = lambda *a, **k: (_ for _ in ()).throw(
+            ValueError("la cotización ya no está Pendiente"))
+        try:
+            app.button(key=f"guardar-partidas-cot-{folio}").click()
+            app.run()
+        finally:
+            db.actualizar_cotizacion_partida = original_actualizar_partida
+        comprobar("Un ValueError al guardar renglones muestra un aviso, "
+                  "no truena", not app.exception, sin_excepciones(app))
+        comprobar("Con el mensaje del error",
+                  any("ya no está Pendiente" in e.value for e in app.error),
+                  str([e.value for e in app.error]))
+
+        print("\n--- El camino feliz de guardar renglones sigue funcionando ---")
+        app.session_state[clave_editor] = {
+            "edited_rows": {0: {"Cantidad": 3}}, "added_rows": [],
+            "deleted_rows": [],
+        }
+        app.button(key=f"guardar-partidas-cot-{folio}").click()
+        app.run()
+        comprobar("Guardar renglones sin forzar ningún error no truena",
+                  not app.exception, sin_excepciones(app))
+        comprobar("Y sí actualiza la cantidad en la base",
+                  db.obtener_cotizacion(folio)["partidas"][0]["cantidad"] == 3)
+
+        print("\n--- Editar un renglón (botón nuevo) sin borrarlo ---")
+        renglon = db.obtener_cotizacion(folio)["partidas"][0]  # "Balatas"
+        etiqueta_renglon = (f"{renglon['linea']} — {renglon['descripcion']} "
+                            f"({db.formato_pesos(renglon['total_centavos'])})")
+        selector_editar = app.selectbox(key=f"editar-cot-{folio}-2")
+        app = selector_editar.set_value(etiqueta_renglon).run()
+        boton_editar = app.button(key=f"btn-editar-cot-{folio}")
+        app = boton_editar.click().run()
+        comprobar("Abrir el editor del renglón no truena",
+                  not app.exception, sin_excepciones(app))
+
+        clave_form = f"cot_editar-{renglon['id_item']}"
+        comprobar("El formulario llega precargado con la descripción guardada",
+                  app.text_input(key=f"desc-{clave_form}").value == "Balatas")
+        comprobar("Mientras se edita, no se ofrece agregar otro renglón",
+                  not any(b.label == "Agregar partida" for b in app.button))
+
+        app.text_input(key=f"desc-{clave_form}").set_value("Balatas corregidas")
+        app.run()
+        boton_guardar = app.button(key=f"agregar-{clave_form}")
+        app = boton_guardar.click().run()
+        comprobar("Guardar el renglón editado no truena",
+                  not app.exception, sin_excepciones(app))
+
+        cotizacion_final = db.obtener_cotizacion(folio)
+        comprobar("El cambio se refleja en la base",
+                  cotizacion_final["partidas"][0]["descripcion"]
+                  == "Balatas corregidas")
+        comprobar("Y sigue siendo Producto — no se convirtió en Servicio en "
+                  "silencio (el bug encontrado al construir esta prueba)",
+                  cotizacion_final["partidas"][0]["tipo_concepto"] == "Producto")
+        # El `st.success` va seguido de `st.rerun()` (mismo patrón que el
+        # resto de la pantalla), así que no sobrevive para comprobarlo; lo
+        # observable es que el modo edición se cerró.
+        comprobar("Al guardar, se sale del modo edición",
+                  not any(b.label == "Cancelar edición" for b in app.button))
+    finally:
+        db.RUTA_DB = original_ruta
+        shutil.rmtree(carpeta, ignore_errors=True)
+
+
+def _prueba_notas_edicion_renglon_interaccion() -> None:
+    """
+    Ejercita el botón nuevo para editar un renglón ya agregado en una nota
+    de servicio ya guardada, sin tener que borrarlo — mismo Arreglo 3 que
+    `_prueba_cotizaciones_edicion_interaccion`, aplicado sobre
+    `_editar_partidas` (paginas/notas.py).
+
+    Corre sobre una base temporal aislada, mismo motivo que
+    `_prueba_diagnosticos_interaccion`.
+    """
+    print("\n--- Notas: editar un renglón ya guardado (base temporal aislada) ---")
+    original_ruta = db.RUTA_DB
+    carpeta = tempfile.mkdtemp(prefix="pruebas_notas_editar_",
+                               dir=config.ruta_temporal())
+    db.RUTA_DB = Path(carpeta) / "prueba.db"
+    try:
+        db.inicializar_esquema()
+        db.sembrar_marcas()
+        with db.transaccion() as c:
+            c.execute("INSERT INTO categorias (nombre) VALUES ('Motor')")
+            c.execute("INSERT INTO acciones (nombre) VALUES ('Reemplazo')")
+        id_cliente = db.crear_cliente("Cliente de prueba", "3312345678")
+        id_vehiculo = db.crear_vehiculo(id_cliente, "Jeep", "Patriot", 2020,
+                                        "Negro")
+        folio = db.crear_nota(
+            id_cliente=id_cliente, fecha="2026-02-01", id_vehiculo=id_vehiculo,
+            partidas=[
+                {"tipo_concepto": "Producto", "categoria": "Motor", "accion": None,
+                 "descripcion": "Pieza importada del Excel histórico",
+                 "cantidad": 1, "precio_unitario_centavos": 80000},
+                {"tipo_concepto": "Servicio", "categoria": "Motor",
+                 "accion": "Reemplazo", "descripcion": "Mano de obra",
+                 "cantidad": 1, "precio_unitario_centavos": 30000},
+            ],
+        )
+
+        app = abrir_pagina("notas")
+        selector = next(sb for sb in app.selectbox
+                        if "Abrir una nota" in (sb.label or ""))
+        app = selector.set_value(folio).run()
+        comprobar("Abrir la nota no truena", not app.exception, sin_excepciones(app))
+
+        renglon = db.obtener_nota(folio)["partidas"][0]  # el "Producto" sin catálogo
+        etiqueta_renglon = (f"{renglon['linea']} — {renglon['descripcion']} "
+                            f"({db.formato_pesos(renglon['total_centavos'])})")
+        selector_editar = next(
+            sb for sb in app.selectbox if (sb.label or "") == "Editar una partida")
+        app = selector_editar.set_value(etiqueta_renglon).run()
+        boton_editar = next(b for b in app.button if b.label == "Editar")
+        app = boton_editar.click().run()
+        comprobar("Abrir el editor del renglón no truena",
+                  not app.exception, sin_excepciones(app))
+
+        clave_form = f"notas_editar-{renglon['id_partida']}"
+        comprobar("El formulario llega precargado con la descripción guardada",
+                  app.text_input(key=f"desc-{clave_form}").value
+                  == "Pieza importada del Excel histórico")
+
+        app.text_input(key=f"desc-{clave_form}").set_value(
+            "Pieza corregida en la prueba")
+        app.run()
+        boton_guardar = next(
+            b for b in app.button if b.label == "Guardar cambios de este renglón")
+        app = boton_guardar.click().run()
+        comprobar("Guardar el renglón editado no truena",
+                  not app.exception, sin_excepciones(app))
+
+        nota_final = db.obtener_nota(folio)
+        comprobar("El cambio se refleja en la base",
+                  nota_final["partidas"][0]["descripcion"]
+                  == "Pieza corregida en la prueba")
+        comprobar("El renglón sigue conservando su lugar (línea 1)",
+                  nota_final["partidas"][0]["linea"] == renglon["linea"])
+        comprobar("Y sigue siendo Producto — no se convirtió en Servicio en "
+                  "silencio (el bug encontrado al construir esta prueba)",
+                  nota_final["partidas"][0]["tipo_concepto"] == "Producto")
+        comprobar("Al guardar, se sale del modo edición",
+                  not any(b.label == "Cancelar edición" for b in app.button))
     finally:
         db.RUTA_DB = original_ruta
         shutil.rmtree(carpeta, ignore_errors=True)
@@ -703,6 +937,8 @@ def main() -> None:
                           str(etiquetas_pdf))
 
         _prueba_diagnosticos_interaccion()
+        _prueba_cotizaciones_edicion_interaccion()
+        _prueba_notas_edicion_renglon_interaccion()
 
         print("\n--- Cerrar sesión ---")
         app = abrir()

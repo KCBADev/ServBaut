@@ -70,17 +70,24 @@ def _bloque_nota_vehiculo(id_cliente: int | None) -> tuple:
 def _bloque_partidas() -> int:
     styles.seccion("3 · Servicios y productos", "hoja TSA · ID_SA va 1, 2, 3…")
 
-    # `formulario_partida` arma las llaves de sus widgets con la `clave` que
-    # se le pasa; una `clave` fija dejaba el producto/cantidad/precio del
-    # renglón anterior puestos al capturar el siguiente. Con un número de
-    # versión que sube en cada «Agregar», cada renglón usa widgets nuevos
-    # que nunca existieron, así que siempre arrancan en blanco.
-    version = st.session_state.get("crear_partida_version", 0)
-    formulario = formulario_partida(f"crear-{version}")
-    if formulario:
-        _borrador().append(formulario)
-        st.session_state["crear_partida_version"] = version + 1
-        st.rerun()
+    clave_editando = "crear_editando"
+    editando = st.session_state.get(clave_editando)
+
+    # Oculto mientras se edita un renglón: nunca dos formularios de captura
+    # vivos a la vez, que confundiría cuál botón agrega y cuál guarda.
+    if editando is None:
+        # `formulario_partida` arma las llaves de sus widgets con la `clave`
+        # que se le pasa; una `clave` fija dejaba el producto/cantidad/precio
+        # del renglón anterior puestos al capturar el siguiente. Con un
+        # número de versión que sube en cada «Agregar», cada renglón usa
+        # widgets nuevos que nunca existieron, así que siempre arrancan en
+        # blanco.
+        version = st.session_state.get("crear_partida_version", 0)
+        formulario = formulario_partida(f"crear-{version}")
+        if formulario:
+            _borrador().append(formulario)
+            st.session_state["crear_partida_version"] = version + 1
+            st.rerun()
 
     partidas = _borrador()
     if not partidas:
@@ -108,18 +115,54 @@ def _bloque_partidas() -> int:
         width="stretch", hide_index=True,
     )
 
-    col1, col2 = st.columns([2, 1])
-    # La llave incluye `len(partidas)`: al quitar un renglón la lista cambia
-    # de tamaño y el selector arranca sin selección heredada, en vez de
-    # quedar apuntando —tras la renumeración— a un renglón distinto del que
-    # se acababa de quitar.
-    quitar = col1.selectbox("Quitar renglón", range(1, len(partidas) + 1),
-                            index=None, placeholder="Número de ID_SA…",
-                            key=f"crear_quitar_{len(partidas)}")
-    col2.write("")
-    if quitar and col2.button("Quitar", key=f"crear_btn_quitar_{len(partidas)}"):
-        partidas.pop(quitar - 1)
-        st.rerun()
+    # "Quitar" y "Editar renglón" trabajan sobre ÍNDICES de la lista en
+    # memoria (todavía no hay `id_partida`: nada se ha guardado). Si
+    # "Quitar" pudiera usarse mientras se edita otro renglón, un `pop()` de
+    # un índice anterior recorrería el índice que se está editando y la
+    # edición acabaría guardándose sobre el renglón equivocado — por eso los
+    # dos se ocultan junto con "Agregar" mientras `editando` no sea `None`.
+    if editando is None:
+        col1, col2 = st.columns([2, 1])
+        # La llave incluye `len(partidas)`: al quitar un renglón la lista
+        # cambia de tamaño y el selector arranca sin selección heredada, en
+        # vez de quedar apuntando —tras la renumeración— a un renglón
+        # distinto del que se acababa de quitar.
+        quitar = col1.selectbox("Quitar renglón", range(1, len(partidas) + 1),
+                                index=None, placeholder="Número de ID_SA…",
+                                key=f"crear_quitar_{len(partidas)}")
+        col2.write("")
+        if quitar and col2.button("Quitar", key=f"crear_btn_quitar_{len(partidas)}"):
+            partidas.pop(quitar - 1)
+            st.rerun()
+
+        col1, col2 = st.columns([2, 1])
+        editar = col1.selectbox(
+            "Editar renglón", range(1, len(partidas) + 1), index=None,
+            placeholder="Número de ID_SA a corregir…",
+            key=f"crear_editar_{len(partidas)}")
+        col2.write("")
+        if editar and col2.button("Editar", key=f"crear_btn_editar_{len(partidas)}"):
+            st.session_state[clave_editando] = editar - 1
+            st.rerun()
+    elif editando >= len(partidas):
+        # No debería pasar con "Quitar" oculto, pero por si acaso: la lista
+        # cambió de tamaño desde que se eligió este índice.
+        del st.session_state[clave_editando]
+    else:
+        st.markdown(f"##### Editando el renglón {editando + 1}")
+        # Borrador en memoria, todavía no toca la base: editar aquí es
+        # simplemente reemplazar el índice de la lista.
+        actualizado = formulario_partida(
+            f"crear_editar-{editando}-{len(partidas)}",
+            inicial=partidas[editando],
+            texto_boton="Guardar cambios de este renglón")
+        if actualizado:
+            partidas[editando] = actualizado
+            del st.session_state[clave_editando]
+            st.rerun()
+        if st.button("Cancelar edición", key="crear_cancelar_editar"):
+            del st.session_state[clave_editando]
+            st.rerun()
 
     return sum(p["cantidad"] * p["precio_unitario_centavos"] for p in partidas)
 

@@ -13,6 +13,7 @@ Uso:
 from __future__ import annotations
 
 import io
+import re
 import sqlite3
 import sys
 import tempfile
@@ -45,6 +46,16 @@ def comprobar(descripcion: str, condicion: bool) -> None:
     else:
         fallos += 1
         print(f"  [!!] FALLÓ: {descripcion}")
+
+
+def _paginas_pdf(pdf: bytes) -> int:
+    """Cuenta las hojas de un PDF vía su /Count, sin agregar ninguna
+    librería de PDF al proyecto (ya descartadas a propósito, ver el
+    comentario de requirements.txt)."""
+    m = re.search(rb"/Type\s*/Pages.*?/Count\s+(\d+)", pdf, re.DOTALL)
+    if m is None:
+        raise ValueError("No se encontró /Count en el PDF")
+    return int(m.group(1))
 
 
 def sembrar() -> None:
@@ -351,6 +362,38 @@ def main() -> None:
                   f"({db.formato_pesos(nota['total_centavos'])})",
                   nota["total_centavos"] == 80000)
 
+        print("\n--- Editar TODOS los campos de un renglón ya guardado ---")
+        # Antes de este arreglo, corregir cualquier campo que no fuera
+        # cantidad/precio obligaba a borrar el renglón y volver a darlo de
+        # alta con `agregar_partida` — perdiendo su lugar, porque un alta
+        # siempre va al final. Cantidad y precio se dejan iguales aquí a
+        # propósito, para no descuadrar los totales que ya arma el resto de
+        # esta sección.
+        objetivo = nota["partidas"][1]
+        db.actualizar_partida_completa(objetivo["id_partida"], {
+            "tipo_concepto": "Servicio", "categoria": "Frenos",
+            "accion": "Reparación", "descripcion": "Pieza B corregida",
+            "posicion": "Anterior", "lado": "Izquierdo",
+            "cantidad": objetivo["cantidad"],
+            "precio_unitario_centavos": objetivo["precio_unitario_centavos"],
+            "notas": "corregido en pruebas",
+        })
+        nota = db.obtener_nota(editable)
+        corregido = nota["partidas"][1]
+        comprobar("Cambia todos los campos, no solo cantidad/precio",
+                  corregido["tipo_concepto"] == "Servicio"
+                  and corregido["categoria"] == "Frenos"
+                  and corregido["accion"] == "Reparación"
+                  and corregido["descripcion"] == "Pieza B corregida"
+                  and corregido["posicion"] == "Anterior"
+                  and corregido["lado"] == "Izquierdo"
+                  and corregido["notas"] == "corregido en pruebas")
+        comprobar("Conserva su lugar en la lista (no se va al final)",
+                  corregido["id_partida"] == objetivo["id_partida"]
+                  and corregido["linea"] == objetivo["linea"])
+        comprobar("El total no se movió (cantidad y precio quedaron iguales)",
+                  nota["total_centavos"] == 80000)
+
         nuevo_id = db.agregar_partida(editable, {
             "tipo_concepto": "Producto", "categoria": "Frenos", "accion": None,
             "descripcion": "Pieza D", "cantidad": 2,
@@ -393,6 +436,18 @@ def main() -> None:
         except ValueError:
             comprobar("Impide dejar una nota sin partidas", True)
 
+        # A diferencia de eliminar_partida, editar el único renglón SÍ debe
+        # dejarse — es el caso que hubiera detectado de entrada el problema
+        # de implementar esto como "borrar y volver a dar de alta".
+        db.actualizar_partida_completa(unica["id_partida"], {
+            "tipo_concepto": "Producto", "categoria": "Motor", "accion": None,
+            "descripcion": "Única corregida", "cantidad": 1,
+            "precio_unitario_centavos": 5000,
+        })
+        comprobar("Sí deja editar el único renglón de una nota",
+                  db.obtener_nota(solo_una)["partidas"][0]["descripcion"]
+                  == "Única corregida")
+
         print("\n--- Eliminar una nota completa ---")
         antes = len(db.listar_notas())
         db.eliminar_nota(solo_una)
@@ -416,11 +471,35 @@ def main() -> None:
         comprobar(f"Con contenido real ({len(pdf):,} bytes)", len(pdf) > 800)
         comprobar("El nombre del archivo lleva el folio",
                   nota_pdf.nombre_archivo(editable) == f"orden-{editable}.pdf")
+        comprobar(f"Con 3 renglones cabe en una sola hoja (antes salían 2)",
+                  _paginas_pdf(pdf) == 1)
         try:
             nota_pdf.generar("N-999")
             comprobar("Falla claro si la nota no existe", False)
         except ValueError:
             comprobar("Falla claro si la nota no existe", True)
+
+        print("\n--- El PDF no desperdicia una hoja en blanco (FILAS_MINIMAS) ---")
+        # El límite real: 7 renglones caben en una hoja, el octavo ya no.
+        renglon_generico = {
+            "tipo_concepto": "Producto", "categoria": "Motor", "accion": None,
+            "descripcion": "Pieza", "cantidad": 1,
+            "precio_unitario_centavos": 1000,
+        }
+        nota_7 = db.crear_nota(
+            id_cliente=id2, fecha="2025-09-21", id_vehiculo=veh2,
+            partidas=[renglon_generico] * 7,
+        )
+        comprobar("7 renglones (el máximo) siguen en una sola hoja",
+                  _paginas_pdf(nota_pdf.generar(nota_7)) == 1)
+        nota_8 = db.crear_nota(
+            id_cliente=id2, fecha="2025-09-22", id_vehiculo=veh2,
+            partidas=[renglon_generico] * 8,
+        )
+        comprobar("8 renglones sí necesitan una segunda hoja (con contenido, "
+                  "no en blanco)", _paginas_pdf(nota_pdf.generar(nota_8)) == 2)
+        db.eliminar_nota(nota_7)
+        db.eliminar_nota(nota_8)
 
         print("\n--- IVA ---")
         # Los importes del ejemplo real del taller: 5,000 + 16% = 5,800.
@@ -521,6 +600,8 @@ def main() -> None:
         comprobar("El nombre del archivo lleva el folio",
                   nota_pdf.nombre_archivo_cotizacion(cot1)
                   == f"cotizacion-{cot1}.pdf")
+        comprobar("Con 2 renglones cabe en una sola hoja (antes salían 2)",
+                  _paginas_pdf(pdf_cot) == 1)
         try:
             nota_pdf.generar_cotizacion("COT-999")
             comprobar("Falla claro si la cotización no existe", False)
@@ -558,6 +639,52 @@ def main() -> None:
         comprobar("Busca por folio",
                   len(db.listar_cotizaciones(busqueda=cot1)) == 1)
 
+        print("\n--- Editar TODOS los campos de un renglón de cotización ---")
+        # Mismo motivo que en notas: antes obligaba a borrar y volver a
+        # agregar, perdiendo el lugar en la lista. Cantidad y precio se
+        # dejan iguales para no descuadrar los totales que usan las pruebas
+        # de abajo.
+        objetivo_cot = cotizacion2["partidas"][1]
+        db.actualizar_cotizacion_partida_completa(objetivo_cot["id_item"], {
+            "tipo_concepto": "Servicio", "categoria": "Suspensión",
+            "accion": "Reparación", "descripcion": "Mano de obra corregida",
+            "posicion": "Posterior", "lado": "Derecho",
+            "cantidad": objetivo_cot["cantidad"],
+            "precio_unitario_centavos": objetivo_cot["precio_unitario_centavos"],
+            "notas": "corregido en pruebas",
+        })
+        cotizacion2 = db.obtener_cotizacion(cot2)
+        corregido_cot = cotizacion2["partidas"][1]
+        comprobar("Cambia todos los campos, no solo cantidad/precio",
+                  corregido_cot["tipo_concepto"] == "Servicio"
+                  and corregido_cot["categoria"] == "Suspensión"
+                  and corregido_cot["accion"] == "Reparación"
+                  and corregido_cot["descripcion"] == "Mano de obra corregida"
+                  and corregido_cot["posicion"] == "Posterior"
+                  and corregido_cot["lado"] == "Derecho"
+                  and corregido_cot["notas"] == "corregido en pruebas")
+        comprobar("Conserva su lugar (mismo id_item y línea)",
+                  corregido_cot["id_item"] == objetivo_cot["id_item"]
+                  and corregido_cot["linea"] == objetivo_cot["linea"])
+        comprobar("El total no se movió (cantidad y precio quedaron iguales)",
+                  cotizacion2["subtotal_centavos"] == 150000)
+
+        # El caso que hubiera detectado "borrar y volver a dar de alta" como
+        # mal diseño: editar el único renglón de una cotización de un solo
+        # concepto (`eliminar_cotizacion_partida` sí lo bloquearía).
+        cot_una = db.crear_cotizacion(id2, veh2, "2026-02-03",
+                                      [renglones_cot[0]])
+        renglon_unico = db.obtener_cotizacion(cot_una)["partidas"][0]
+        db.actualizar_cotizacion_partida_completa(renglon_unico["id_item"], {
+            "tipo_concepto": "Producto", "categoria": "Frenos", "accion": None,
+            "descripcion": "Balatas corregidas", "cantidad": 1,
+            "precio_unitario_centavos": 100000,
+        })
+        comprobar("Sí deja editar el único renglón de una cotización",
+                  db.obtener_cotizacion(cot_una)["partidas"][0]["descripcion"]
+                  == "Balatas corregidas")
+        db.eliminar_cotizacion(cot_una)
+
         print("\n--- Convertir una cotización en nota ---")
         folio_nota = db.convertir_cotizacion_a_nota(cot1, fecha="2026-02-05")
         comprobar(f"Genera un folio de NOTA, no de cotización ({folio_nota})",
@@ -591,6 +718,22 @@ def main() -> None:
             comprobar("No deja borrar una cotización ya convertida", False)
         except ValueError:
             comprobar("No deja borrar una cotización ya convertida", True)
+
+        # La causa raíz real del bug reportado: editar un renglón de una
+        # cotización que dejó de estar Pendiente (aquí, Convertida) debe
+        # fallar con un error legible, no con una excepción sin capturar.
+        try:
+            db.actualizar_cotizacion_partida_completa(
+                cotizacion["partidas"][0]["id_item"], {
+                    "tipo_concepto": "Producto", "categoria": "Frenos",
+                    "accion": None, "descripcion": "No debería aplicar",
+                    "cantidad": 1, "precio_unitario_centavos": 100000,
+                })
+            comprobar("No deja editar un renglón de una cotización ya "
+                      "convertida", False)
+        except ValueError:
+            comprobar("No deja editar un renglón de una cotización ya "
+                      "convertida", True)
 
         print("\n--- Rechazar y borrar una cotización ---")
         db.rechazar_cotizacion(cot2)

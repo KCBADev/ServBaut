@@ -21,6 +21,30 @@ RAIZ = Path(__file__).resolve().parent
 RUTA_PLANTILLA = (RAIZ / "Plantillas" / "Work_order" / "export"
                   / "diagnostico-plantilla.html")
 
+# Ajustes de espacio que se inyectan sobre la plantilla (y no se editan en
+# ella, porque se re-exporta desde el lienzo de diseño y se perderían). Sin
+# ellos, un diagnóstico de UN solo código medía ~1235px contra los 1056px de
+# una hoja carta: la rejilla de datos (11 celdas en 3 columnas = 5 filas)
+# se comía un tercio de la hoja y las firmas y el slogan acababan solos en
+# una segunda hoja. En 4 columnas son 3 filas; con eso y secciones algo más
+# apretadas, un diagnóstico corto cabe en una hoja. Si de verdad no cabe
+# (muchos códigos), el pie viaja junto en vez de quedar huérfano.
+_CSS_COMPACTO = """<style>
+  .sect { padding-top:12px; }
+  .meta { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .meta .cell.wide:last-child { grid-column:span 1; }
+  .cell { padding:8px 12px 7px; }
+  .cell .k { font-size:11px; letter-spacing:.1em; white-space:nowrap; }
+  .cell .v { margin-top:4px; }
+  .services { line-height:1.5; }
+  .sist-h { margin-top:8px; }
+  table.dtc td { padding:6px 14px; }
+  .slogan { padding:8px 40px 10px; }
+  .firmas, .slogan, .foot-bar { break-inside:avoid; }
+  .slogan, .foot-bar { break-before:avoid; }
+</style>
+"""
+
 # Clase CSS y etiqueta impresa por cada nivel de gravedad.
 _PILL = {
     "ALTA": ("pill-alta", "ALTA"),
@@ -145,7 +169,7 @@ def _rellenar(diagnostico: dict) -> str:
     }
     for marcador, valor in valores.items():
         documento = documento.replace(marcador, valor)
-    return documento
+    return documento.replace("</head>", _CSS_COMPACTO + "</head>", 1)
 
 
 def generar(id_diagnostico: str) -> bytes:

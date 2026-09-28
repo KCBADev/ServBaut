@@ -42,16 +42,22 @@ def _borrador() -> list[dict]:
 def _bloque_partidas() -> int:
     styles.seccion("3 · Servicios y productos")
 
-    # Mismo motivo que en crear_nota.py: una `clave` fija dejaba el
-    # producto/cantidad/precio del renglón anterior puestos al capturar el
-    # siguiente. Versionar la llave hace que cada renglón use widgets
-    # nuevos, en blanco.
-    version = st.session_state.get(f"{PREFIJO}_partida_version", 0)
-    formulario = formulario_partida(f"{PREFIJO}-{version}")
-    if formulario:
-        _borrador().append(formulario)
-        st.session_state[f"{PREFIJO}_partida_version"] = version + 1
-        st.rerun()
+    clave_editando = f"{PREFIJO}_editando"
+    editando = st.session_state.get(clave_editando)
+
+    # Oculto mientras se edita un renglón: nunca dos formularios de captura
+    # vivos a la vez, que confundiría cuál botón agrega y cuál guarda.
+    if editando is None:
+        # Mismo motivo que en crear_nota.py: una `clave` fija dejaba el
+        # producto/cantidad/precio del renglón anterior puestos al capturar el
+        # siguiente. Versionar la llave hace que cada renglón use widgets
+        # nuevos, en blanco.
+        version = st.session_state.get(f"{PREFIJO}_partida_version", 0)
+        formulario = formulario_partida(f"{PREFIJO}-{version}")
+        if formulario:
+            _borrador().append(formulario)
+            st.session_state[f"{PREFIJO}_partida_version"] = version + 1
+            st.rerun()
 
     partidas = _borrador()
     if not partidas:
@@ -78,14 +84,54 @@ def _bloque_partidas() -> int:
         width="stretch", hide_index=True,
     )
 
-    col1, col2 = st.columns([2, 1])
-    quitar = col1.selectbox("Quitar renglón", range(1, len(partidas) + 1),
-                            index=None, placeholder="Número de renglón…",
-                            key=f"{PREFIJO}_quitar_{len(partidas)}")
-    col2.write("")
-    if quitar and col2.button("Quitar", key=f"{PREFIJO}_btn_quitar_{len(partidas)}"):
-        partidas.pop(quitar - 1)
-        st.rerun()
+    # "Quitar" y "Editar renglón" trabajan sobre ÍNDICES de la lista en
+    # memoria: si "Quitar" pudiera usarse mientras se edita otro renglón, un
+    # `pop()` de un índice anterior recorrería el índice que se está
+    # editando y la edición acabaría guardándose sobre el renglón
+    # equivocado. Por eso los dos se ocultan juntos mientras `editando` no
+    # sea `None` — igual que "Agregar" arriba.
+    if editando is None:
+        col1, col2 = st.columns([2, 1])
+        quitar = col1.selectbox("Quitar renglón", range(1, len(partidas) + 1),
+                                index=None, placeholder="Número de renglón…",
+                                key=f"{PREFIJO}_quitar_{len(partidas)}")
+        col2.write("")
+        if quitar and col2.button("Quitar",
+                                  key=f"{PREFIJO}_btn_quitar_{len(partidas)}"):
+            partidas.pop(quitar - 1)
+            st.rerun()
+
+        col1, col2 = st.columns([2, 1])
+        editar = col1.selectbox(
+            "Editar renglón", range(1, len(partidas) + 1), index=None,
+            placeholder="Número de renglón a corregir…",
+            key=f"{PREFIJO}_editar_{len(partidas)}")
+        col2.write("")
+        if editar and col2.button(
+                "Editar", key=f"{PREFIJO}_btn_editar_{len(partidas)}"):
+            st.session_state[clave_editando] = editar - 1
+            st.rerun()
+    elif editando >= len(partidas):
+        # La lista cambió de tamaño desde que se eligió este índice (no
+        # debería pasar con "Quitar" oculto, pero por si acaso): no hay nada
+        # seguro que editar.
+        del st.session_state[clave_editando]
+    else:
+        st.markdown(f"##### Editando el renglón {editando + 1}")
+        # Es borrador en memoria, todavía no toca la base: editar aquí es
+        # simplemente reemplazar el índice de la lista, sin necesidad de
+        # ningún try/except.
+        actualizado = formulario_partida(
+            f"{PREFIJO}_editar-{editando}-{len(partidas)}",
+            inicial=partidas[editando],
+            texto_boton="Guardar cambios de este renglón")
+        if actualizado:
+            partidas[editando] = actualizado
+            del st.session_state[clave_editando]
+            st.rerun()
+        if st.button("Cancelar edición", key=f"{PREFIJO}_cancelar_editar"):
+            del st.session_state[clave_editando]
+            st.rerun()
 
     return sum(p["cantidad"] * p["precio_unitario_centavos"] for p in partidas)
 
@@ -319,7 +365,12 @@ def _editar_cabecera_cotizacion(cotizacion: dict) -> None:
                     cotizacion["id_cotizacion"], ops_cliente[etiqueta],
                     fecha.isoformat(), ops_veh[etiqueta_veh],
                 )
-            except ValueError as error:
+            # `except Exception` y no solo `ValueError`, igual que en
+            # `notas.py::_editar_cabecera`: sin esto, cualquier falla que no
+            # sea la validación esperada (por ejemplo la cotización cambió de
+            # estado a medio camino) sube sin capturar y Streamlit la muestra
+            # como el recuadro rojo genérico, no como un aviso legible.
+            except Exception as error:
                 st.error(str(error))
             else:
                 st.success("Cabecera actualizada.")
@@ -366,19 +417,29 @@ def _editar_partidas_cotizacion(cotizacion: dict) -> None:
     if st.button("Guardar cambios de los renglones", type="primary",
                  key=f"guardar-partidas-cot-{id_cotizacion}"):
         cambios = 0
-        for partida, (_, fila) in zip(cotizacion["partidas"], editado.iterrows()):
-            cantidad = int(fila["Cantidad"])
-            precio = db.pesos_a_centavos(fila["Precio"])
-            if (cantidad != partida["cantidad"]
-                    or precio != partida["precio_unitario_centavos"]):
-                db.actualizar_cotizacion_partida(partida["id_item"], cantidad,
-                                                 precio)
-                cambios += 1
-        if cambios:
-            st.success(f"{cambios} renglón(es) actualizado(s).")
-            st.rerun()
+        # Sin este try/except, `db.actualizar_cotizacion_partida` puede
+        # lanzar `ValueError` (vía `_cotizacion_editable`) si la cotización
+        # dejó de estar Pendiente entre que se abrió la pestaña y se le dio
+        # clic a Guardar — y sube sin capturar. Mismo patrón que ya usan
+        # "Quitar" y "Agregar" en esta misma función, que quedaron bien
+        # cuando se escribieron pero este botón se quedó sin él.
+        try:
+            for partida, (_, fila) in zip(cotizacion["partidas"], editado.iterrows()):
+                cantidad = int(fila["Cantidad"])
+                precio = db.pesos_a_centavos(fila["Precio"])
+                if (cantidad != partida["cantidad"]
+                        or precio != partida["precio_unitario_centavos"]):
+                    db.actualizar_cotizacion_partida(partida["id_item"], cantidad,
+                                                     precio)
+                    cambios += 1
+        except ValueError as error:
+            st.error(str(error))
         else:
-            st.info("No hubo cambios que guardar.")
+            if cambios:
+                st.success(f"{cambios} renglón(es) actualizado(s).")
+                st.rerun()
+            else:
+                st.info("No hubo cambios que guardar.")
 
     st.divider()
     col1, col2 = st.columns([3, 1])
@@ -400,19 +461,68 @@ def _editar_partidas_cotizacion(cotizacion: dict) -> None:
             st.success("Renglón quitado; se renumeraron los demás.")
             st.rerun()
 
+    # --- Editar un renglón ---
+    # Antes, corregir cualquier campo que no fuera cantidad/precio obligaba a
+    # quitar el renglón entero y volver a capturarlo desde cero. Este bloque
+    # precarga `formulario_partida` con lo que ya tenía el renglón y lo
+    # reemplaza con un solo UPDATE (`actualizar_cotizacion_partida_completa`),
+    # conservando su lugar en la lista.
     st.divider()
-    st.markdown("##### Agregar un renglón")
-    version = st.session_state.get(f"partida_version-cot-{id_cotizacion}", 0)
-    nueva = formulario_partida(f"edicion-cot-{id_cotizacion}-{version}")
-    if nueva:
-        try:
-            db.agregar_cotizacion_partida(id_cotizacion, nueva)
-        except ValueError as error:
-            st.error(str(error))
-        else:
-            st.session_state[f"partida_version-cot-{id_cotizacion}"] = version + 1
-            st.success("Renglón agregado.")
+    clave_editando = f"cot_editando-{id_cotizacion}"
+    editando = st.session_state.get(clave_editando)
+
+    if editando is None:
+        col1, col2 = st.columns([3, 1])
+        elegida_editar = col1.selectbox(
+            "Editar un renglón", list(lineas), index=None,
+            placeholder="Elige el renglón a corregir…",
+            key=f"editar-cot-{id_cotizacion}-{len(lineas)}")
+        col2.write("")
+        if elegida_editar and col2.button(
+                "Editar", key=f"btn-editar-cot-{id_cotizacion}"):
+            st.session_state[clave_editando] = lineas[elegida_editar]
             st.rerun()
+    else:
+        renglon = next((p for p in cotizacion["partidas"]
+                        if p["id_item"] == editando), None)
+        if renglon is None:
+            # Alguien más lo quitó mientras tanto: no hay nada que editar.
+            del st.session_state[clave_editando]
+        else:
+            st.markdown(f"##### Editando el renglón {renglon['linea']}")
+            actualizado = formulario_partida(
+                f"cot_editar-{editando}", inicial=renglon,
+                texto_boton="Guardar cambios de este renglón")
+            if actualizado:
+                try:
+                    db.actualizar_cotizacion_partida_completa(editando,
+                                                              actualizado)
+                except ValueError as error:
+                    st.error(str(error))
+                else:
+                    del st.session_state[clave_editando]
+                    st.success("Renglón actualizado.")
+                    st.rerun()
+            if st.button("Cancelar edición", key=f"cancelar-editar-cot-{id_cotizacion}"):
+                del st.session_state[clave_editando]
+                st.rerun()
+
+    # Oculto mientras se edita un renglón: nunca dos formularios de captura
+    # vivos a la vez.
+    if editando is None:
+        st.divider()
+        st.markdown("##### Agregar un renglón")
+        version = st.session_state.get(f"partida_version-cot-{id_cotizacion}", 0)
+        nueva = formulario_partida(f"edicion-cot-{id_cotizacion}-{version}")
+        if nueva:
+            try:
+                db.agregar_cotizacion_partida(id_cotizacion, nueva)
+            except ValueError as error:
+                st.error(str(error))
+            else:
+                st.session_state[f"partida_version-cot-{id_cotizacion}"] = version + 1
+                st.success("Renglón agregado.")
+                st.rerun()
 
 
 def _panel_cotizacion(id_cotizacion: str) -> None:

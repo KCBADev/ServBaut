@@ -1835,6 +1835,40 @@ def actualizar_partida(id_partida: int, cantidad: int,
         )
 
 
+def actualizar_partida_completa(id_partida: int, partida: dict) -> None:
+    """
+    Reemplaza TODOS los datos de un renglón ya guardado (tipo, categoría,
+    acción, descripción, posición, lado, cantidad y precio) — no solo
+    cantidad y precio como `actualizar_partida`.
+
+    Antes, corregir cualquier otro campo de un renglón equivocado obligaba a
+    quitarlo por completo y volver a darlo de alta con `agregar_partida` —
+    perdiendo su lugar en la lista, porque un alta siempre va al final (ver
+    `siguiente_linea`). Un solo UPDATE conserva `id_partida` y `linea`
+    intactos, y el trigger de siempre (`trg_partidas_update`) recalcula el
+    total de la nota igual que ya lo hace para `actualizar_partida`.
+    """
+    cantidad = int(partida["cantidad"])
+    precio = int(partida["precio_unitario_centavos"])
+    with transaccion() as c:
+        c.execute(
+            """
+            UPDATE partidas
+               SET id_catalogo = ?, id_producto = ?, costo_unitario_centavos = ?,
+                   tipo_concepto = ?, categoria = ?, accion = ?, descripcion = ?,
+                   posicion = ?, lado = ?, cantidad = ?,
+                   precio_unitario_centavos = ?, total_centavos = ?, notas = ?
+             WHERE id_partida = ?
+            """,
+            (partida.get("id_catalogo"), partida.get("id_producto"),
+             partida.get("costo_unitario_centavos"), partida["tipo_concepto"],
+             partida["categoria"], partida.get("accion"),
+             partida["descripcion"].strip(), partida.get("posicion"),
+             partida.get("lado"), cantidad, precio, cantidad * precio,
+             (partida.get("notas") or "").strip() or None, id_partida),
+        )
+
+
 def eliminar_partida(id_partida: int) -> None:
     """
     Borra un renglón y renumera los que quedan.
@@ -2136,6 +2170,49 @@ def actualizar_cotizacion_partida(id_item: int, cantidad: int,
              WHERE id_item = ?
             """,
             (cantidad, precio, cantidad * precio, id_item),
+        )
+
+
+def actualizar_cotizacion_partida_completa(id_item: int, partida: dict) -> None:
+    """
+    Reemplaza TODOS los datos de un renglón de cotización ya guardado — no
+    solo cantidad y precio como `actualizar_cotizacion_partida`.
+
+    Mismo motivo y mismo patrón que `actualizar_partida_completa`: un solo
+    UPDATE conserva `id_item`/`linea` en su lugar, en vez de perder el orden
+    al quitar y volver a agregar. Pasa por el mismo guardián de estado
+    (`_cotizacion_editable`) que ya usan sus vecinas: no se puede editar un
+    renglón de una cotización que dejó de estar Pendiente.
+
+    `cotizacion_partidas` no tiene `costo_unitario_centavos` (a diferencia de
+    `partidas`): una cotización es un presupuesto, no trabajo realizado, así
+    que no hay costo de compra que registrar todavía.
+    """
+    cantidad = int(partida["cantidad"])
+    precio = int(partida["precio_unitario_centavos"])
+    with transaccion() as c:
+        fila = c.execute(
+            "SELECT id_cotizacion FROM cotizacion_partidas WHERE id_item = ?",
+            (id_item,),
+        ).fetchone()
+        if fila is None:
+            raise ValueError("El renglón ya no existe.")
+        _cotizacion_editable(c, fila["id_cotizacion"])
+        c.execute(
+            """
+            UPDATE cotizacion_partidas
+               SET id_catalogo = ?, id_producto = ?, tipo_concepto = ?,
+                   categoria = ?, accion = ?, descripcion = ?, posicion = ?,
+                   lado = ?, cantidad = ?, precio_unitario_centavos = ?,
+                   total_centavos = ?, notas = ?
+             WHERE id_item = ?
+            """,
+            (partida.get("id_catalogo"), partida.get("id_producto"),
+             partida["tipo_concepto"], partida["categoria"],
+             partida.get("accion"), partida["descripcion"].strip(),
+             partida.get("posicion"), partida.get("lado"), cantidad, precio,
+             cantidad * precio, (partida.get("notas") or "").strip() or None,
+             id_item),
         )
 
 

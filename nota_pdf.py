@@ -49,7 +49,22 @@ RUTA_PLANTILLA = (RAIZ / "Plantillas" / "Work_order" / "export"
 
 # Mínimo de renglones impresos: con menos, la hoja se ve corta y deja un hueco
 # raro entre la tabla y el total.
-FILAS_MINIMAS = 8
+#
+# El número no es arbitrario. El resto del documento (encabezado, datos de
+# cliente/vehículo, encabezado de tabla, SUBTOTAL/IVA, condiciones del
+# servicio, slogan y barra final) mide 759.2px fijos a 96dpi — medido con
+# Playwright contra el HTML ya relleno. Una hoja carta (`@page { size:
+# letter }`) da 1056px de alto a esa resolución, así que quedan
+# 1056 - 759.2 = 296.8px para las filas de conceptos. Cada fila mide 30px
+# (`tbody td { height:30px }` en la plantilla) y el `<tbody>` siempre trae 2
+# filas fijas de resumen además de las de la lista, así que el máximo que
+# cabe en una sola hoja es (296.8 // 30) - 2 = 7 renglones.
+#
+# Con 8 el documento medía 759.2 + 10*30 = 1059.2px, 3.2px arriba del
+# límite, y Chromium mandaba ese sobrante solo a una segunda hoja casi en
+# blanco — pasaba con CUALQUIER cotización u orden de ≤ 8 conceptos, que es
+# el caso típico.
+FILAS_MINIMAS = 7
 
 # El bloque que se repite una vez por concepto.
 PATRON_FILA = re.compile(

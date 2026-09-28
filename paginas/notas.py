@@ -31,7 +31,41 @@ CONFIRMAR_BORRADO = "nota_por_eliminar"  # folio pendiente de confirmar
 # Formulario de partida, compartido por captura y edición
 # ---------------------------------------------------------------------------
 
-def formulario_partida(clave: str) -> dict | None:
+def _indice(opciones: list, valor, por_omision: int | None = 0) -> int | None:
+    """
+    Índice de `valor` dentro de `opciones`, para precargar un selectbox.
+
+    `por_omision` cubre dos casos a la vez: no se está editando nada
+    (`valor` llega en `None` a propósito), o sí se está editando pero ese
+    valor ya no aparece en la lista (una categoría que se borró del
+    catálogo desde que se capturó el renglón) — en ambos, mejor caer a un
+    valor seguro que tronar. Se usa `list.index()` y no una comparación
+    manual porque algunas listas (`[None] + POSICIONES`) sí tienen `None`
+    como opción legítima en el índice 0, y ese caso debe resolver igual.
+    """
+    try:
+        return opciones.index(valor)
+    except ValueError:
+        return por_omision
+
+
+def _indice_por_id(opciones: dict, campo_id: str, valor_id,
+                   por_omision: int | None = None) -> int | None:
+    """
+    Igual que `_indice`, pero para un selectbox cuyas opciones son un
+    diccionario `{etiqueta_visible: fila}` — el caso de "Producto" y
+    "Concepto", donde no se puede comparar `valor_id` contra la etiqueta.
+    """
+    if valor_id is None:
+        return por_omision
+    return next((i for i, e in enumerate(opciones)
+                if opciones[e][campo_id] == valor_id), por_omision)
+
+
+def formulario_partida(
+    clave: str, *, inicial: dict | None = None,
+    texto_boton: str = "Agregar partida",
+) -> dict | None:
     """
     Muestra el formulario de una partida y la devuelve al confirmar.
 
@@ -43,12 +77,39 @@ def formulario_partida(clave: str) -> dict | None:
     dentro de un formulario los widgets no disparan ese refresco.
 
     `clave` distingue los widgets entre la pantalla de captura y la de edición,
-    que pueden estar vivas a la vez.
+    que pueden estar vivas a la vez. Al EDITAR, además, `clave` debe ser una
+    que nunca se haya usado antes (por ejemplo, que incluya el `id_item` o el
+    índice del renglón): los `value=`/`index=` de Streamlit solo se toman en
+    cuenta la primera vez que existe esa llave, así que reusar una ya vista
+    dejaría la precarga sin efecto.
+
+    `inicial` precarga el formulario con los datos de un renglón YA
+    guardado, para corregirlo en vez de partir de uno en blanco. El precio
+    (y, si el origen es un producto de almacén, el costo) parten de lo que
+    el renglón YA tenía — no del precio/costo actual del catálogo: pudieron
+    negociarse distinto en su momento, y editar debe mostrar lo que de
+    verdad se cobró, no refrescarlo en silencio con el valor de hoy.
+
+    Si el producto o concepto original ya no está disponible (se desactivó
+    o se borró del catálogo desde que se capturó el renglón), el selectbox
+    correspondiente se queda sin preseleccionar y se avisa en pantalla —
+    mejor eso que bloquear la edición; quien edite puede elegir otro origen
+    o dejarlo en «libre».
     """
+    indice_origen = 0
+    if inicial is not None:
+        if inicial.get("id_producto"):
+            indice_origen = 0
+        elif inicial.get("id_catalogo"):
+            indice_origen = 1
+        else:
+            indice_origen = 2
+
     origen = st.radio(
         "Origen del concepto",
         ["Producto de almacén", "Concepto cobrable",
          f"{db.CONCEPTO_LIBRE} / libre"],
+        index=indice_origen,
         horizontal=True, label_visibility="collapsed", key=f"origen-{clave}",
     )
     del_catalogo = origen == "Concepto cobrable"
@@ -77,7 +138,16 @@ def formulario_partida(clave: str) -> dict | None:
             : p
             for p in disponibles
         }
-        etiqueta = st.selectbox("Producto", list(ops), index=None,
+        indice_prod = None
+        if inicial is not None:
+            indice_prod = _indice_por_id(ops, "id_producto",
+                                         inicial.get("id_producto"))
+            if inicial.get("id_producto") and indice_prod is None:
+                st.caption(
+                    "⚠️ El producto original ya no está disponible en el "
+                    "almacén — elige otro o cambia el origen del concepto."
+                )
+        etiqueta = st.selectbox("Producto", list(ops), index=indice_prod,
                                 placeholder="Busca y elige un producto…",
                                 key=f"producto-{clave}")
         if etiqueta is None:
@@ -88,13 +158,19 @@ def formulario_partida(clave: str) -> dict | None:
         id_catalogo = None
         id_producto = prod["id_producto"]
         # Se guarda el costo DEL MOMENTO: recalcular el margen del año pasado
-        # con el costo de hoy daría un número falso.
+        # con el costo de hoy daría un número falso. Al editar, se conserva
+        # el costo que ya tenía el renglón por la misma razón — el de hoy
+        # puede haber cambiado desde que se capturó.
         costo_centavos = prod["precio_compra_centavos"]
+        if inicial is not None and inicial.get("costo_unitario_centavos") is not None:
+            costo_centavos = inicial["costo_unitario_centavos"]
         precio_sugerido = float(db.centavos_a_pesos(prod["precio_venta_centavos"]))
         # El producto trae su categoría de almacén; la de la partida es la del
         # sistema del carro, que es otro eje y hay que elegirla.
         categoria = st.selectbox(
-            "Categoría del servicio", categorias, key=f"catsis-{clave}",
+            "Categoría del servicio", categorias,
+            index=_indice(categorias, inicial.get("categoria") if inicial else None),
+            key=f"catsis-{clave}",
             help="En qué sistema del carro se usó. Es distinta de la categoría "
                  "de almacén del producto.")
         if prod["stock_actual"] <= 0:
@@ -114,11 +190,22 @@ def formulario_partida(clave: str) -> dict | None:
             f"({db.formato_pesos(c['precio_actual_centavos'])})": c
             for c in conceptos
         }
-        # Si acaba de crearse un concepto aquí mismo, queda preseleccionado.
+        # Si acaba de crearse un concepto aquí mismo, queda preseleccionado
+        # -por encima de lo que traiga `inicial`, porque refleja la acción
+        # más reciente de quien está capturando-.
         recien = st.session_state.pop(clave_creado, None)
-        indice = next((i for i, e in enumerate(opciones)
-                       if opciones[e]["id_catalogo"] == recien),
-                      None) if recien else None
+        if recien:
+            indice = _indice_por_id(opciones, "id_catalogo", recien)
+        elif inicial is not None:
+            indice = _indice_por_id(opciones, "id_catalogo",
+                                    inicial.get("id_catalogo"))
+            if inicial.get("id_catalogo") and indice is None:
+                st.caption(
+                    "⚠️ El concepto original ya no está activo en el "
+                    "catálogo — elige otro o cambia el origen del concepto."
+                )
+        else:
+            indice = None
 
         etiqueta = st.selectbox("Concepto", list(opciones), index=indice,
                                 placeholder="Busca y elige un concepto…",
@@ -170,42 +257,74 @@ def formulario_partida(clave: str) -> dict | None:
     else:
         id_catalogo = None
         col1, col2 = st.columns([3, 2])
-        descripcion = col1.text_input("Descripción", value=db.CONCEPTO_LIBRE,
-                                      key=f"desc-{clave}")
-        categoria = col2.selectbox("Categoría", categorias, key=f"cat-{clave}")
-        # La mano de obra siempre es un servicio, y un servicio siempre lleva
-        # acción: es la regla que el CHECK de la base hace cumplir.
-        tipo_concepto = "Servicio"
+        descripcion = col1.text_input(
+            "Descripción",
+            value=(inicial["descripcion"] if inicial else db.CONCEPTO_LIBRE),
+            key=f"desc-{clave}")
+        categoria = col2.selectbox(
+            "Categoría", categorias,
+            index=_indice(categorias, inicial.get("categoria") if inicial else None),
+            key=f"cat-{clave}")
+        # Al capturar, el origen libre siempre es mano de obra (un servicio,
+        # que siempre lleva acción — la regla que el CHECK de la base hace
+        # cumplir). Al EDITAR un renglón que ya traía su propio tipo —por
+        # ejemplo un producto del Excel histórico, importado sin ligar al
+        # catálogo— se conserva ese tipo: convertirlo a Servicio en
+        # silencio le cambiaría de qué trata el renglón sin que nadie lo
+        # pidiera.
+        tipo_concepto = inicial["tipo_concepto"] if inicial else "Servicio"
         precio_sugerido = 0.0
 
+    # El precio guardado gana sobre el precio sugerido del origen elegido:
+    # lo que ya se cobró pudo negociarse distinto al de catálogo, y editar
+    # debe mostrar eso, no refrescarlo en silencio al precio de hoy.
+    if inicial is not None:
+        precio_sugerido = float(db.centavos_a_pesos(inicial["precio_unitario_centavos"]))
+
     col1, col2, col3 = st.columns([1, 2, 2])
-    cantidad = col1.number_input("Cantidad", min_value=1, max_value=99, value=1,
-                                 step=1, key=f"cant-{clave}")
+    cantidad = col1.number_input(
+        "Cantidad", min_value=1, max_value=99,
+        value=inicial["cantidad"] if inicial else 1,
+        step=1, key=f"cant-{clave}")
     precio = col2.number_input("Precio unitario (pesos)", min_value=0.0, step=50.0,
                                format="%.2f", value=precio_sugerido,
                                key=f"precio-{clave}")
 
     if tipo_concepto == "Servicio":
-        accion = col3.selectbox("Acción *", acciones, key=f"accion-{clave}")
+        accion = col3.selectbox(
+            "Acción *", acciones,
+            index=_indice(acciones, inicial.get("accion") if inicial else None),
+            key=f"accion-{clave}")
     else:
         accion = None
         col3.caption("Los productos no llevan acción.")
 
     col4, col5 = st.columns(2)
-    posicion = col4.selectbox("Posición", [None] + POSICIONES, key=f"pos-{clave}",
-                              format_func=lambda v: "No aplica" if v is None else v)
-    lado = col5.selectbox("Lado", [None] + LADOS, key=f"lado-{clave}",
-                          format_func=lambda v: "No aplica" if v is None else v)
+    opciones_posicion = [None] + POSICIONES
+    opciones_lado = [None] + LADOS
+    posicion = col4.selectbox(
+        "Posición", opciones_posicion,
+        index=_indice(opciones_posicion,
+                     inicial.get("posicion") if inicial else None),
+        key=f"pos-{clave}",
+        format_func=lambda v: "No aplica" if v is None else v)
+    lado = col5.selectbox(
+        "Lado", opciones_lado,
+        index=_indice(opciones_lado, inicial.get("lado") if inicial else None),
+        key=f"lado-{clave}",
+        format_func=lambda v: "No aplica" if v is None else v)
 
     observacion = st.text_input(
-        "Nota del renglón (opcional)", key=f"obs-{clave}",
+        "Nota del renglón (opcional)",
+        value=(inicial.get("notas") or "") if inicial else "",
+        key=f"obs-{clave}",
         placeholder="Ej. Reparar puente, pieza pedida al proveedor…",
         help="Es la columna «Notas» de la hoja original.")
 
     importe = db.pesos_a_centavos(precio) * cantidad
     st.caption(f"Importe de esta partida: **{db.formato_pesos(importe)}**")
 
-    if not st.button("Agregar partida", type="primary", key=f"agregar-{clave}"):
+    if not st.button(texto_boton, type="primary", key=f"agregar-{clave}"):
         return None
 
     if not descripcion.strip():
@@ -483,20 +602,69 @@ def _editar_partidas(nota: dict) -> None:
             st.success("Partida quitada; los renglones se renumeraron.")
             st.rerun()
 
-    # --- Agregar una partida ---
+    # --- Editar una partida ---
+    # Antes, corregir cualquier campo que no fuera cantidad/precio (tipo,
+    # categoría, acción, descripción, posición, lado) obligaba a quitar el
+    # renglón entero y volver a capturarlo desde cero. Este bloque precarga
+    # `formulario_partida` con lo que ya tenía el renglón y lo reemplaza con
+    # un solo UPDATE (`actualizar_partida_completa`), conservando su lugar
+    # en la lista.
     st.divider()
-    st.markdown("##### Agregar una partida a esta nota")
-    # Mismo motivo que en crear_nota.py/cotizaciones.py: una `clave` fija
-    # dejaba el producto/cantidad/precio del renglón anterior puestos al
-    # agregar el siguiente. Versionar la llave por nota da widgets en
-    # blanco en cada renglón nuevo.
-    version = st.session_state.get(f"partida_version-{nota['id_nota']}", 0)
-    nueva = formulario_partida(f"edicion-{nota['id_nota']}-{version}")
-    if nueva:
-        db.agregar_partida(nota["id_nota"], nueva)
-        st.session_state[f"partida_version-{nota['id_nota']}"] = version + 1
-        st.success("Partida agregada.")
-        st.rerun()
+    clave_editando = f"notas_editando-{nota['id_nota']}"
+    editando = st.session_state.get(clave_editando)
+
+    if editando is None:
+        col1, col2 = st.columns([3, 1])
+        elegida_editar = col1.selectbox(
+            "Editar una partida", list(lineas), index=None,
+            placeholder="Elige el renglón a corregir…",
+            key=f"editar-{nota['id_nota']}-{len(lineas)}")
+        col2.write("")
+        if elegida_editar and col2.button(
+                "Editar", key=f"btn-editar-{nota['id_nota']}"):
+            st.session_state[clave_editando] = lineas[elegida_editar]
+            st.rerun()
+    else:
+        renglon = next((p for p in nota["partidas"]
+                        if p["id_partida"] == editando), None)
+        if renglon is None:
+            # Alguien más lo quitó mientras tanto (otra pestaña, otra
+            # sesión): no hay nada que editar, se cierra el modo edición en
+            # silencio en vez de mostrar un formulario sobre un renglón que
+            # ya no existe.
+            del st.session_state[clave_editando]
+        else:
+            st.markdown(f"##### Editando el renglón {renglon['linea']}")
+            actualizado = formulario_partida(
+                f"notas_editar-{editando}", inicial=renglon,
+                texto_boton="Guardar cambios de este renglón")
+            if actualizado:
+                db.actualizar_partida_completa(editando, actualizado)
+                del st.session_state[clave_editando]
+                st.success("Renglón actualizado.")
+                st.rerun()
+            if st.button("Cancelar edición",
+                         key=f"cancelar-editar-{nota['id_nota']}"):
+                del st.session_state[clave_editando]
+                st.rerun()
+
+    # --- Agregar una partida ---
+    # Oculto mientras se edita un renglón: nunca dos formularios de captura
+    # vivos a la vez, que confundiría cuál botón agrega y cuál guarda.
+    if editando is None:
+        st.divider()
+        st.markdown("##### Agregar una partida a esta nota")
+        # Mismo motivo que en crear_nota.py/cotizaciones.py: una `clave` fija
+        # dejaba el producto/cantidad/precio del renglón anterior puestos al
+        # agregar el siguiente. Versionar la llave por nota da widgets en
+        # blanco en cada renglón nuevo.
+        version = st.session_state.get(f"partida_version-{nota['id_nota']}", 0)
+        nueva = formulario_partida(f"edicion-{nota['id_nota']}-{version}")
+        if nueva:
+            db.agregar_partida(nota["id_nota"], nueva)
+            st.session_state[f"partida_version-{nota['id_nota']}"] = version + 1
+            st.success("Partida agregada.")
+            st.rerun()
 
 
 def _eliminar_nota(nota: dict) -> None:
