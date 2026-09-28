@@ -1,15 +1,46 @@
-# Configuración de Streamlit — Auto Servicio Bautista
+# Configuración de Streamlit — System KCBA
 
 [theme]
-# Tablero oscuro tipo panel de control. El lienzo y las tarjetas son dos
-# azules-carbón distintos para que una tarjeta se distinga del fondo sin
-# necesitar borde, y el verde menta queda para lo que importa: cifras,
-# botones y estados activos. `styles.py` tiene el detalle completo.
-primaryColor = "#18D59C"              # verde menta: acento principal
-backgroundColor = "#091017"           # azul marino / carbón: lienzo
-secondaryBackgroundColor = "#171B24"  # gris azulado: tarjetas y campos
-textColor = "#D2D8DE"                 # gris claro de alto contraste
-font = "sans serif"
+# Blanco y negro: lienzo gris muy claro, tarjetas blancas, negro para texto,
+# botones y lo activo. El único color fuera de la escala de grises es el
+# rojo de errores y saldos, que sigue haciendo falta como señal. Los valores
+# son los mismos tokens de `styles.py`, que pule lo que el tema no cubre.
+base = "light"
+primaryColor = "#111111"
+backgroundColor = "#F4F5F7"
+secondaryBackgroundColor = "#FFFFFF"
+textColor = "#111111"
+borderColor = "#E3E5E8"
+showWidgetBorder = true
+redColor = "#B3261E"
+# Los avisos informativos (st.info) salían azules: en gris neutro se quedan
+# dentro del blanco y negro. Éxito, advertencia y error conservan su color
+# porque ahí el color sí comunica algo.
+blueColor = "#5F6368"
+blueBackgroundColor = "#ECEEF0"
+blueTextColor = "#111111"
+linkColor = "#111111"
+baseRadius = "10px"
+buttonRadius = "10px"
+dataframeHeaderBackgroundColor = "#F0F1F3"
+# Inter: la sans de interfaz más usada en productos profesionales. Si el
+# navegador no alcanza Google Fonts, cae a la del sistema.
+font = "Inter:https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+headingFont = "Inter"
+headingFontWeights = [800, 700, 700, 600, 600, 600]
+chartCategoricalColors = ["#1A1A1A", "#9A9A9A", "#D0D0D0", "#5F6368", "#B3B3B3"]
+chartSequentialColors = ["#F2F2F2", "#DADADA", "#BFBFBF", "#A3A3A3", "#878787",
+                         "#6B6B6B", "#505050", "#363636", "#1F1F1F", "#0A0A0A"]
+
+[theme.sidebar]
+# Barra lateral negra, como en la referencia: la navegación se recorta del
+# contenido y el enlace activo se lee en blanco.
+backgroundColor = "#111111"
+secondaryBackgroundColor = "#1C1C1C"
+textColor = "#E6E6E6"
+primaryColor = "#FFFFFF"
+borderColor = "#2A2A2A"
+linkColor = "#FFFFFF"
 
 [server]
 # Escucha en toda interfaz de red, no solo en esta computadora: así se puede

@@ -1,5 +1,5 @@
 """
-Aplicación de administración — Servicio Bautista.
+Aplicación de administración — System KCBA.
 
 Punto de entrada de Streamlit. Se encarga de la autenticación y de la
 navegación; toda la lógica de datos vive en db.py y el contenido de cada
@@ -11,7 +11,7 @@ Uso:
 
 from __future__ import annotations
 
-import random
+import base64
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -33,7 +33,7 @@ from paginas import (catalogo, clientes, configuracion, cotizaciones,
 RUTA_LOGO = Path(__file__).resolve().parent / "assets" / "ctm-logo.png"
 
 st.set_page_config(
-    page_title="Servicio Bautista",
+    page_title="System KCBA",
     page_icon="🔧",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -43,157 +43,122 @@ st.set_page_config(
 # `intentos_acceso` (db.py), no aquí: tiene que sobrevivir a que alguien
 # recargue la página, y una constante en session_state no lo hace.
 
-# --- Fondo animado de la pantalla de acceso ---
-NEON = "#38e8ff"
-PUNTOS = 70
-# Semilla fija: sin ella los puntos cambiarían de sitio en cada recarga de
-# Streamlit (que ocurre en cada tecla y cada clic) y el fondo daría brincos.
-SEMILLA = 20260902
+# --- Pantalla de acceso: dividida en imagen + panel blanco ---
+RUTA_FONDO_ACCESO = Path(__file__).resolve().parent / "assets" / "fondo-login.jpg"
 
 
-def _css_lluvia() -> str:
+@st.cache_resource
+def _fondo_acceso_base64() -> str | None:
     """
-    Genera el CSS de los puntos que caen.
+    La imagen del panel izquierdo, en base64, leída una sola vez por proceso.
 
-    Va todo en una hoja de estilo en vez de estilos en línea porque Streamlit
-    filtra el HTML que se le inyecta, y un bloque <style> sobrevive entero.
-    Tampoco se puede usar JavaScript: Streamlit no ejecuta los <script> que se
-    le pasan, así que la animación es CSS puro.
+    Va incrustada en el CSS porque Streamlit no sirve archivos sueltos del
+    proyecto. Si falta, el panel queda en negro sólido: una imagen ausente no
+    puede impedir que alguien inicie sesión.
     """
-    aleatorio = random.Random(SEMILLA)
-    reglas = []
-    for indice in range(1, PUNTOS + 1):
-        izquierda = aleatorio.uniform(0, 100)
-        tamano = aleatorio.uniform(2, 7)
-        duracion = aleatorio.uniform(7, 20)
-        # Retraso negativo: al primer pintado los puntos ya vienen cayendo a
-        # media pantalla, en vez de aparecer todos juntos desde arriba.
-        retraso = -aleatorio.uniform(0, duracion)
-        opacidad = aleatorio.uniform(0.25, 1.0)
-        desenfoque = 0 if tamano > 4 else aleatorio.choice([0, 0, 1])
-        reglas.append(
-            f"#lluvia i:nth-child({indice}){{"
-            f"left:{izquierda:.2f}%;"
-            f"width:{tamano:.1f}px;height:{tamano:.1f}px;"
-            f"animation-duration:{duracion:.1f}s;"
-            f"animation-delay:{retraso:.1f}s;"
-            f"opacity:{opacidad:.2f};"
-            f"filter:blur({desenfoque}px)}}"
-        )
-    return "".join(reglas)
+    if not RUTA_FONDO_ACCESO.is_file():
+        return None
+    return base64.b64encode(RUTA_FONDO_ACCESO.read_bytes()).decode("ascii")
 
 
-def _fondo_animado() -> None:
-    """Pinta el fondo negro y la lluvia de puntos detrás del formulario."""
-    puntos = "<i></i>" * PUNTOS
+def _estilo_acceso() -> None:
+    """
+    Pinta la pantalla de acceso: la imagen a sangre en la mitad izquierda y
+    el formulario sobre blanco sólido en la derecha. En pantallas angostas
+    (celular) la imagen se oculta y queda solo el panel blanco.
+    """
+    imagen = _fondo_acceso_base64()
+    fondo_panel = (f"url('data:image/jpeg;base64,{imagen}') right bottom / cover "
+                   f"no-repeat, #FFFFFF" if imagen else "#111111")
     st.markdown(
         f"""
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Jost:wght@200;300;400&display=swap');
-
-        /* --- Fondo --- */
-        .stApp {{
-            background:
-                radial-gradient(ellipse at 50% 0%,
-                                rgba(56,232,255,.09), transparent 60%),
-                #000000;
-        }}
+        .stApp {{ background: #FFFFFF; }}
         [data-testid="stHeader"] {{ background: transparent; }}
+        [data-testid="stAppDeployButton"] {{ display: none; }}
 
-        /* --- La lluvia va detrás de todo y no intercepta clics --- */
-        #lluvia {{
+        /* --- Panel de imagen: fijo, detrás de todo, no intercepta clics --- */
+        #panel-acceso {{
             position: fixed;
-            inset: 0;
-            overflow: hidden;
+            top: 0; bottom: 0; left: 0;
+            width: 50vw;
+            background: {fondo_panel};
+            border-right: 1px solid #ECEEF0;
             pointer-events: none;
             z-index: 0;
         }}
-        #lluvia i {{
-            position: absolute;
-            top: 0;
-            display: block;
-            border-radius: 50%;
-            background: {NEON};
-            box-shadow: 0 0 6px {NEON}, 0 0 16px rgba(56,232,255,.55);
-            animation-name: caer;
-            animation-timing-function: linear;
-            animation-iteration-count: infinite;
-        }}
-        @keyframes caer {{
-            from {{ transform: translateY(-12vh); }}
-            to   {{ transform: translateY(112vh); }}
-        }}
-        {_css_lluvia()}
 
-        /* Quien pidió menos movimiento se queda con el fondo, sin la lluvia. */
-        @media (prefers-reduced-motion: reduce) {{
-            #lluvia {{ display: none; }}
-        }}
-
-        /* --- El contenido, por encima de la lluvia --- */
+        /* --- El contenido vive en la mitad derecha --- */
         [data-testid="stMainBlockContainer"], .block-container {{
             position: relative;
             z-index: 1;
+            margin-left: 50vw;
+            width: 50vw;
+            max-width: 50vw;
+            padding: 14vh 6vw 4rem;
+        }}
+        .acceso {{ max-width: 400px; margin: 0 auto; }}
+
+        .acceso-marca {{
+            font-weight: 800;
+            font-size: 1.75rem;
+            letter-spacing: -.035em;
+            line-height: 1.15;
+            color: #111111;
+            margin: 0 0 2.2rem;
+        }}
+        .acceso-saludo {{
+            font-weight: 700;
+            font-size: 1.35rem;
+            letter-spacing: -.02em;
+            color: #111111;
+            margin: 0 0 .3rem;
+        }}
+        .acceso-nota {{
+            font-size: .92rem;
+            color: #5F6368;
+            margin: 0 0 1.6rem;
         }}
 
-        /* --- Texto legible sobre el negro --- */
-        .stApp h1, .stApp h2, .stApp h3,
-        .stApp p, .stApp label, .stApp span {{ color: #dff6ff; }}
-
-        /* --- Wordmark ---
-           Geométrica en mayúsculas con tracking amplio y peso ligero, como
-           bloquean su nombre las marcas automotrices. Sin resplandor: la
-           presencia la da el trazo y el aire entre letras, no el brillo. */
-        .marca {{
-            text-align: center;
-            margin: 4px 0 30px;
-        }}
-        .marca-nombre {{
-            font-family: 'Jost', 'Futura', 'Century Gothic', sans-serif;
-            font-weight: 300;
-            font-size: clamp(1.05rem, 2.9vw, 1.72rem);
-            letter-spacing: .215em;
-            /* Compensa el espacio que el tracking añade tras la última letra,
-               que si no descuadra el centrado. */
-            text-indent: .215em;
-            text-transform: uppercase;
-            color: #f0fbff;
-            line-height: 1.25;
-            margin: 0 0 16px;
-        }}
-        .marca-filete {{
-            width: 54px;
-            height: 1px;
-            background: rgba(56,232,255,.5);
-            margin: 0 auto 15px;
-        }}
-        .marca-descriptor {{
-            font-family: 'Jost', 'Futura', 'Century Gothic', sans-serif;
-            font-weight: 200;
-            font-size: .72rem;
-            letter-spacing: .44em;
-            text-indent: .44em;
-            text-transform: uppercase;
-            color: rgba(180,235,250,.82);
-            margin: 0;
-        }}
-
-        /* Los campos y el botón los estiliza styles.py para toda la app; aquí
-           solo se ajusta el panel del formulario, que sobre la lluvia lleva
-           algo de transparencia y desenfoque para que los puntos se
-           insinúen detrás. */
+        /* El formulario va sin caja: sobre blanco sólido, los campos solos
+           ya se leen como formulario. */
         [data-testid="stForm"] {{
-            border: 1px solid rgba(0,229,255,.20) !important;
-            border-radius: 12px;
-            background: rgba(14,22,38,.72) !important;
-            backdrop-filter: blur(4px);
+            border: none !important;
+            box-shadow: none !important;
+            padding: 0 !important;
+            background: transparent !important;
+            max-width: 400px;
+            margin: 0 auto;
         }}
+        [data-testid="stAlert"] {{ max-width: 400px; margin: 0 auto; }}
 
-        /* En una pantalla de acceso, el botón de desplegar solo estorba. */
-        [data-testid="stAppDeployButton"] {{ display: none; }}
+        @media (max-width: 768px) {{
+            #panel-acceso {{ display: none; }}
+            [data-testid="stMainBlockContainer"], .block-container {{
+                margin-left: 0;
+                width: 100%;
+                max-width: 100%;
+                padding: 10vh 1.5rem 3rem;
+            }}
+        }}
         </style>
-        <div id="lluvia">{puntos}</div>
+        <div id="panel-acceso"></div>
         """,
+        unsafe_allow_html=True,
+    )
+
+
+def _encabezado_acceso(saludo: str, nota: str) -> None:
+    """Marca, saludo y línea de ayuda del panel blanco (textos fijos)."""
+    st.markdown(
+        '<div class="acceso">'
+        # El salto va después de los dos puntos: a este tamaño el título no
+        # cabe en un renglón, y partirlo en "Gestión del / Taller" se ve
+        # accidental.
+        '<div class="acceso-marca">System KCBA:<br>Gestión del Taller</div>'
+        f'<div class="acceso-saludo">{saludo}</div>'
+        f'<div class="acceso-nota">{nota}</div>'
+        '</div>',
         unsafe_allow_html=True,
     )
 
@@ -243,24 +208,11 @@ def _mensaje_espera(segundos: int) -> str:
 
 def pantalla_login() -> None:
     """Pantalla previa: sin autenticarse no se llega a nada más."""
-    _fondo_animado()
+    _estilo_acceso()
 
-    # Columna central más ancha que el formulario para que el nombre de la
-    # marca quepa en un solo renglón: partirlo lo haría ver como un salto
-    # accidental en vez de un bloque de marca.
-    _, centro, _ = st.columns([1, 2, 1])
-
-    with centro:
-        # El nombre y el descriptor van como un bloque de marca, no como un
-        # título de Streamlit: así se controla la tipografía por completo.
-        st.markdown(
-            '<div class="marca">'
-            '<div class="marca-nombre">Auto Servicio Bautista</div>'
-            '<div class="marca-filete"></div>'
-            '<div class="marca-descriptor">Gestión del Taller</div>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
+    with st.container():
+        _encabezado_acceso("Bienvenido Administrador",
+                           "Ingresa tus credenciales para continuar.")
 
         with st.form("login"):
             usuario = st.text_input("Usuario")
@@ -359,22 +311,13 @@ def pantalla_cambio_obligatorio(usuario: dict) -> None:
     `debe_cambiar_password` siga en 1 en la base, cada rerun de `main()`
     vuelve a caer aquí en vez de construir la navegación.
     """
-    _fondo_animado()
-    _, centro, _ = st.columns([1, 2, 1])
+    _estilo_acceso()
 
-    with centro:
-        st.markdown(
-            '<div class="marca">'
-            '<div class="marca-nombre">Auto Servicio Bautista</div>'
-            '<div class="marca-filete"></div>'
-            '<div class="marca-descriptor">Gestión del Taller</div>'
-            '</div>',
-            unsafe_allow_html=True,
-        )
-        st.markdown("#### Elige una contraseña para tu cuenta")
-        st.caption(
+    with st.container():
+        _encabezado_acceso(
+            "Elige una contraseña para tu cuenta",
             "Esta cuenta se creó con una contraseña provisional. Antes de "
-            "entrar al sistema, ponle una que solo tú conozcas."
+            "entrar al sistema, ponle una que solo tú conozcas.",
         )
 
         with st.form("cambio_obligatorio"):
@@ -416,7 +359,7 @@ def barra_lateral(usuario: dict) -> None:
     entre los enlaces se pica por error y distrae de lo que se viene a hacer.
     """
     with st.sidebar:
-        st.markdown("### Auto Servicio Bautista")
+        st.markdown("### System KCBA")
         # El monograma del taller en lugar del renglón de «Sesión de…». Quién
         # tiene la sesión abierta se sigue viendo, pero en Configuración →
         # Mi cuenta, que es donde se hace algo con ese dato.

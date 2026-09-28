@@ -645,13 +645,15 @@ def main() -> None:
         comprobar("La app arranca sin excepciones", not app.exception, sin_excepciones(app))
         visible = texto_de(app)
         comprobar("Sin sesión se muestra la pantalla de acceso",
-                  "Servicio Bautista" in visible)
+                  "System KCBA" in visible)
+        comprobar("Con la bienvenida al administrador",
+                  "Bienvenido Administrador" in visible)
         comprobar("Sin sesión NO se llega al contenido de la app",
                   "Dashboard" not in visible and "Catálogo" not in visible,
                   visible[:200])
         comprobar("Se piden usuario y contraseña", len(app.text_input) == 2)
-        comprobar("La pantalla de acceso trae el fondo animado",
-                  any("#lluvia" in m.value for m in app.markdown))
+        comprobar("La pantalla de acceso trae el panel de imagen",
+                  any("panel-acceso" in m.value for m in app.markdown))
 
         print("\n--- Rechazo de credenciales incorrectas ---")
         app.text_input[0].set_value("admin")
@@ -678,10 +680,10 @@ def main() -> None:
         comprobar("Configuración identifica al usuario de la sesión",
                   "admin" in texto_de(app_cuenta), texto_de(app_cuenta)[:200])
 
-        # El fondo animado es solo de la pantalla de acceso: el resto de la app
-        # tiene su propio lienzo oscuro y no debe heredar la animación.
-        comprobar("El fondo animado NO se filtra al resto de la app",
-                  not any("#lluvia" in m.value for m in app.markdown))
+        # El panel de imagen es solo de la pantalla de acceso: el resto de la
+        # app no debe heredar ni la imagen ni el contenido corrido a la mitad.
+        comprobar("El panel de acceso NO se filtra al resto de la app",
+                  not any("panel-acceso" in m.value for m in app.markdown))
 
         print("\n--- Expiración de sesión ---")
         comprobar("Una sesión recién abierta queda con sus dos relojes",

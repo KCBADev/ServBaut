@@ -43,8 +43,8 @@ TINTA_TENUE = styles.TEXTO_TENUE
 TINTA_SECUNDARIA = styles.TEXTO_APAGADO
 
 # Tinta de las etiquetas que van DENTRO de una marca de color. No puede ser
-# una sola: sobre el menta hace falta tinta oscura (10.05:1) y sobre el coral,
-# clara (4.22:1). Cada gráfica que rotula por dentro elige según su serie.
+# una sola: sobre la serie negra hace falta tinta clara y sobre la gris
+# media, oscura. Cada gráfica que rotula por dentro elige según su serie.
 TINTA_SOBRE_SERIE_1 = styles.FONDO
 TINTA_SOBRE_SERIE_2 = styles.TEXTO
 
@@ -162,7 +162,11 @@ def _kpis(desde: str | None, hasta: str | None) -> None:
     # Columnas desiguales: el ingreso total es una cifra mucho más larga que
     # las demás y con cinco columnas iguales se cortaba en "$381,1…".
     col1, col2, col3, col4 = st.columns([1.5, 0.8, 1.3, 1.4])
-    col1.metric("Ingreso total", db.formato_pesos(datos["ingreso_centavos"]))
+    # La cifra principal va en la tarjeta negra (ver `.st-key-kpi-destacado`
+    # en styles.py): la llave del contenedor es un gancho estable para el
+    # CSS, no depende del orden del DOM.
+    with col1.container(key="kpi-destacado"):
+        st.metric("Ingreso total", db.formato_pesos(datos["ingreso_centavos"]))
     col2.metric("Notas", f"{datos['num_notas']:,}")
     col3.metric("Ticket promedio",
                 db.formato_pesos(datos["ticket_promedio_centavos"]))
@@ -288,9 +292,9 @@ def datos_mix_tipo(desde: str | None, hasta: str | None) -> pd.DataFrame:
             # Etiqueta con el signo incluido: un "43" suelto dentro de la barra
             # no dice de qué es.
             "Etiqueta": f"{f['ingreso_centavos'] / total * 100:.0f}%" if total else "0%",
-            # La tinta se decide por serie, no por gráfica: el menta es un
-            # color claro y pide texto oscuro; el coral es oscuro y pide
-            # texto claro. Una sola tinta dejaría una de las dos ilegible.
+            # La tinta se decide por serie, no por gráfica: el negro pide
+            # texto claro y el gris medio, oscuro. Una sola tinta dejaría
+            # una de las dos ilegible.
             "Tinta": (TINTA_SOBRE_SERIE_1 if f["tipo_concepto"] == "Producto"
                       else TINTA_SOBRE_SERIE_2),
         }
@@ -317,6 +321,7 @@ def grafica_mix_tipo(datos: pd.DataFrame) -> alt.Chart:
                                 range=[SERIE_1, SERIE_2]),
                 legend=alt.Legend(title=None, orient="top"),
             ),
+            order=alt.Order("Tipo:N", sort="ascending"),
             tooltip=[
                 alt.Tooltip("Tipo:N", title="Tipo"),
                 alt.Tooltip("Ingreso:Q", title="Ingreso", format="$,.2f"),
@@ -329,12 +334,18 @@ def grafica_mix_tipo(datos: pd.DataFrame) -> alt.Chart:
     # El color de la tinta viene calculado por fila (ver `datos_mix_tipo`) y
     # se pasa con `scale=None` para que Altair lo use tal cual en vez de
     # tratarlo como una categoría más que colorear.
+    # `order` explícito en las DOS capas: sin él, Altair apila el texto
+    # según el campo de color (la tinta), así que el orden de las etiquetas
+    # dependía de qué código de color quedaba primero alfabéticamente. Con
+    # una paleta coincidía con las barras por casualidad; con otra, cada
+    # porcentaje caía sobre el segmento contrario.
     etiquetas = (
         alt.Chart(datos)
         .mark_text(fontWeight="bold", fontSize=13)
         .encode(
             x=alt.X("Ingreso:Q", stack="zero", bandPosition=0.5, title=None),
             detail="Tipo:N",
+            order=alt.Order("Tipo:N", sort="ascending"),
             text=alt.Text("Etiqueta:N"),
             color=alt.Color("Tinta:N", scale=None, legend=None),
         )
@@ -624,6 +635,9 @@ def _pastel_categorias(desde: str | None, hasta: str | None) -> None:
 def mostrar() -> None:
     styles.apply_global_theme()
     st.title("Dashboard")
+    usuario = (st.session_state.get("usuario") or {}).get("usuario")
+    if usuario:
+        st.caption(f"Bienvenido de nuevo, {usuario}. Este es el resumen del taller.")
 
     desde, hasta = _filtro_fechas()
     if desde is None:
