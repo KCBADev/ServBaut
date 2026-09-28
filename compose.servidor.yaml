@@ -1,0 +1,36 @@
+# Capa extra para el servidor en internet. Se usa ENCIMA de compose.yaml:
+#
+#   docker compose -f compose.yaml -f compose.servidor.yaml up -d --build
+#
+# Cambia dos cosas respecto a la corrida local:
+#   * la app ya no publica el 8501 hacia afuera (HTTP sin cifrar): solo la
+#     alcanza Caddy por la red interna de Compose;
+#   * Caddy publica 80/443 y pone HTTPS con certificado automático.
+#
+# Requiere en el .env del servidor:  DOMINIO=tu-nombre.region.cloudapp.azure.com
+
+services:
+  app:
+    ports: !reset []
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMINIO: ${DOMINIO:?Define DOMINIO en el .env del servidor}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Aquí guarda Caddy el certificado: si se perdiera en cada reinicio,
+      # Let's Encrypt acabaría limitando las emisiones.
+      - caddy-datos:/data
+      - caddy-config:/config
+
+volumes:
+  caddy-datos:
+  caddy-config:

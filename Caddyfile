@@ -1,0 +1,15 @@
+# Proxy inverso con HTTPS delante de la app, solo en el servidor.
+# Caddy saca y renueva solo el certificado de Let's Encrypt para {$DOMINIO}
+# (definido en el .env del servidor). `reverse_proxy` ya deja pasar los
+# websockets de /_stcore/stream, que es por donde Streamlit habla con el
+# navegador.
+{$DOMINIO} {
+	encode gzip
+	reverse_proxy app:8501
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "same-origin"
+		-Server
+	}
+}
