@@ -63,13 +63,17 @@ def _fondo_acceso_base64() -> str | None:
 
 def _estilo_acceso() -> None:
     """
-    Pinta la pantalla de acceso: la imagen a sangre en la mitad izquierda y
-    el formulario sobre blanco sólido en la derecha. En pantallas angostas
-    (celular) la imagen se oculta y queda solo el panel blanco.
+    Pinta la pantalla de acceso: todo centrado sobre blanco, con la imagen
+    de fondo en toda la pantalla pero desvanecida — un velo blanco casi
+    opaco al centro, donde van el texto y los campos, que se abre hacia los
+    bordes para que la imagen se funda con el fondo en vez de competir con
+    el formulario.
     """
     imagen = _fondo_acceso_base64()
-    fondo_panel = (f"url('data:image/jpeg;base64,{imagen}') right bottom / cover "
-                   f"no-repeat, #FFFFFF" if imagen else "#111111")
+    velo = ("radial-gradient(ellipse 60% 70% at 50% 45%, #FFFFFF 0%, "
+            "rgba(255,255,255,.92) 45%, rgba(255,255,255,.55) 100%)")
+    fondo = (f"{velo}, url('data:image/jpeg;base64,{imagen}') right bottom / "
+             f"cover no-repeat, #FFFFFF" if imagen else "#FFFFFF")
     st.markdown(
         f"""
         <style>
@@ -77,47 +81,49 @@ def _estilo_acceso() -> None:
         [data-testid="stHeader"] {{ background: transparent; }}
         [data-testid="stAppDeployButton"] {{ display: none; }}
 
-        /* --- Panel de imagen: fijo, detrás de todo, no intercepta clics --- */
+        /* --- Fondo: fijo, detrás de todo, no intercepta clics --- */
         #panel-acceso {{
             position: fixed;
-            top: 0; bottom: 0; left: 0;
-            width: 50vw;
-            background: {fondo_panel};
-            border-right: 1px solid #ECEEF0;
+            inset: 0;
+            background: {fondo};
             pointer-events: none;
             z-index: 0;
         }}
 
-        /* --- El contenido vive en la mitad derecha --- */
+        /* --- El contenido, centrado y por encima del fondo --- */
         [data-testid="stMainBlockContainer"], .block-container {{
             position: relative;
             z-index: 1;
-            margin-left: 50vw;
-            width: 50vw;
-            max-width: 50vw;
-            padding: 14vh 6vw 4rem;
+            max-width: 960px;
+            padding: 12vh 1.5rem 4rem;
         }}
-        .acceso {{ max-width: 400px; margin: 0 auto; }}
+        .acceso {{ text-align: center; margin: 0 auto; }}
 
         .acceso-marca {{
-            font-weight: 800;
-            font-size: 1.75rem;
-            letter-spacing: -.035em;
-            line-height: 1.15;
-            color: #111111;
-            margin: 0 0 2.2rem;
+            font-weight: 700;
+            font-size: 1.1rem;
+            letter-spacing: .01em;
+            color: #5F6368;
+            margin: 0 0 1rem;
         }}
         .acceso-saludo {{
-            font-weight: 700;
-            font-size: 1.35rem;
-            letter-spacing: -.02em;
+            font-weight: 800;
+            font-size: 1.6rem;
+            letter-spacing: -.035em;
+            line-height: 1.05;
             color: #111111;
-            margin: 0 0 .3rem;
+            margin: 0 0 .9rem;
+        }}
+        /* El saludo del login, tres veces el tamaño normal (1.35rem → ~4rem);
+           en pantallas angostas baja solo para no desbordarse. */
+        .acceso-saludo.grande {{
+            font-size: clamp(2.3rem, 7.5vw, 4.05rem);
         }}
         .acceso-nota {{
-            font-size: .92rem;
+            font-size: 1rem;
             color: #5F6368;
-            margin: 0 0 1.6rem;
+            margin: 0 auto 2.2rem;
+            max-width: 480px;
         }}
 
         /* El formulario va sin caja: sobre blanco sólido, los campos solos
@@ -133,12 +139,8 @@ def _estilo_acceso() -> None:
         [data-testid="stAlert"] {{ max-width: 400px; margin: 0 auto; }}
 
         @media (max-width: 768px) {{
-            #panel-acceso {{ display: none; }}
             [data-testid="stMainBlockContainer"], .block-container {{
-                margin-left: 0;
-                width: 100%;
-                max-width: 100%;
-                padding: 10vh 1.5rem 3rem;
+                padding: 9vh 1.25rem 3rem;
             }}
         }}
         </style>
@@ -148,15 +150,17 @@ def _estilo_acceso() -> None:
     )
 
 
-def _encabezado_acceso(saludo: str, nota: str) -> None:
-    """Marca, saludo y línea de ayuda del panel blanco (textos fijos)."""
+def _encabezado_acceso(saludo: str, nota: str, *, grande: bool = False) -> None:
+    """Marca, saludo y línea de ayuda de la pantalla de acceso (textos fijos).
+
+    `grande` es para un saludo corto como el del login; uno largo, como el
+    del cambio de contraseña, a ese tamaño ocuparía media pantalla.
+    """
+    clase = "acceso-saludo grande" if grande else "acceso-saludo"
     st.markdown(
         '<div class="acceso">'
-        # El salto va después de los dos puntos: a este tamaño el título no
-        # cabe en un renglón, y partirlo en "Gestión del / Taller" se ve
-        # accidental.
-        '<div class="acceso-marca">System KCBA:<br>Gestión del Taller</div>'
-        f'<div class="acceso-saludo">{saludo}</div>'
+        '<div class="acceso-marca">System KCBA: Gestión del Taller</div>'
+        f'<div class="{clase}">{saludo}</div>'
         f'<div class="acceso-nota">{nota}</div>'
         '</div>',
         unsafe_allow_html=True,
@@ -212,7 +216,8 @@ def pantalla_login() -> None:
 
     with st.container():
         _encabezado_acceso("Bienvenido Administrador",
-                           "Ingresa tus credenciales para continuar.")
+                           "Ingresa tus credenciales para continuar.",
+                           grande=True)
 
         with st.form("login"):
             usuario = st.text_input("Usuario")
