@@ -24,7 +24,7 @@ import config
 import db
 import migraciones
 import styles
-from paginas import (catalogo, clientes, configuracion, cotizaciones,
+from paginas import (aviso_confidencialidad, catalogo, clientes, configuracion, cotizaciones,
                      crear_nota, dashboard, diagnosticos, notas, reportes,
                      vehiculos)
 
@@ -44,7 +44,8 @@ st.set_page_config(
 # recargue la página, y una constante en session_state no lo hace.
 
 # --- Pantalla de acceso: dividida en imagen + panel blanco ---
-RUTA_FONDO_ACCESO = Path(__file__).resolve().parent / "assets" / "fondo-login.jpg"
+RUTA_FONDO_ACCESO = Path(__file__).resolve().parent / \
+    "assets" / "fondo-login.jpg"
 
 
 @st.cache_resource
@@ -394,13 +395,13 @@ def main() -> None:
         print(f"Arranque detenido — hace falta un paso manual:\n{error}",
               file=sys.stderr)
         st.error("El sistema no está disponible en este momento. "
-                "Avisa al administrador.")
+                 "Avisa al administrador.")
         return
     except Exception as error:
         print(f"No se pudo preparar la base de datos: {error}",
               file=sys.stderr)
         st.error("El sistema no está disponible en este momento. "
-                "Avisa al administrador.")
+                 "Avisa al administrador.")
         return
 
     usuario = usuario_actual()
@@ -454,6 +455,9 @@ def main() -> None:
         "Ajustes": [
             st.Page(configuracion.mostrar, title="Configuración",
                     url_path="configuracion", icon=":material/settings:"),
+            st.Page(aviso_confidencialidad.mostrar,
+                    title="Aviso de Confidencialidad",
+                    url_path="aviso-confidencialidad", icon=":material/lock:"),
         ],
     })
     navegacion.run()
