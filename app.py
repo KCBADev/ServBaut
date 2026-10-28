@@ -464,3 +464,5 @@ def main() -> None:
 
 
 main()
+st.markdown(
+    "<p>Proyecto final de la materia Ingeniería de software - Kevin Cristopher Bautista Aviña - [213005584]</p>", unsafe_allow_html=True)
